@@ -182,6 +182,20 @@ data "aws_iam_policy_document" "github-actions-deploy" {
     actions   = ["ssm:GetParameter"]
   }
 
+  dynamic "statement" {
+    for_each = each.key == "dev" ? [true] : []
+
+    content {
+      sid = "Ec2DatabaseOwnedSaleorTokens"
+
+      resources = [
+        "arn:aws:ssm:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:parameter/terrahorse/dev/ec2/SALEOR_CATALOG_APP_TOKEN",
+        "arn:aws:ssm:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:parameter/terrahorse/dev/ec2/SALEOR_COMMERCE_APP_TOKEN",
+      ]
+      actions = ["ssm:GetParameter"]
+    }
+  }
+
   statement {
     sid       = "Ec2RuntimeParameterSync"
     effect    = "Allow"

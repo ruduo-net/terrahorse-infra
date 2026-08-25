@@ -68,6 +68,17 @@ data "aws_iam_policy_document" "ec2-parameters" {
   }
 
   statement {
+    sid     = "PublishDevSaleorAppTokens"
+    effect  = "Allow"
+    actions = ["ssm:PutParameter"]
+
+    resources = [
+      "arn:aws:ssm:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:parameter/terrahorse/dev/ec2/SALEOR_CATALOG_APP_TOKEN",
+      "arn:aws:ssm:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:parameter/terrahorse/dev/ec2/SALEOR_COMMERCE_APP_TOKEN",
+    ]
+  }
+
+  statement {
     effect    = "Allow"
     actions   = ["kms:Decrypt"]
     resources = ["*"]
