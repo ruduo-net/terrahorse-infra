@@ -13,7 +13,7 @@ data "aws_iam_policy_document" "ec2-trust" {
 resource "aws_iam_role" "ec2" {
   for_each = local.ec2_environments
 
-  name               = each.key == "dev" ? "${local.account_name}-ec2" : "${local.account_name}-ec2-${each.key}"
+  name               = "${local.account_name}-ec2-${each.key}"
   assume_role_policy = data.aws_iam_policy_document.ec2-trust.json
 }
 
@@ -47,7 +47,7 @@ data "aws_iam_policy_document" "ec2-volume" {
 resource "aws_iam_role_policy" "ec2-volume" {
   for_each = local.ec2_environments
 
-  name   = each.key == "dev" ? "${local.account_name}-ec2-volume" : "${local.account_name}-ec2-volume-${each.key}"
+  name   = "${local.account_name}-ec2-volume-${each.key}"
   role   = aws_iam_role.ec2[each.key].id
   policy = data.aws_iam_policy_document.ec2-volume.json
 }
@@ -102,7 +102,7 @@ data "aws_iam_policy_document" "ec2-parameters" {
 resource "aws_iam_role_policy" "ec2-parameters" {
   for_each = local.ec2_environments
 
-  name   = each.key == "dev" ? "${local.account_name}-ec2-parameters" : "${local.account_name}-ec2-parameters-${each.key}"
+  name   = "${local.account_name}-ec2-parameters-${each.key}"
   role   = aws_iam_role.ec2[each.key].id
   policy = data.aws_iam_policy_document.ec2-parameters[each.key].json
 }
@@ -110,6 +110,6 @@ resource "aws_iam_role_policy" "ec2-parameters" {
 resource "aws_iam_instance_profile" "ec2" {
   for_each = local.ec2_environments
 
-  name = each.key == "dev" ? "${local.account_name}-ec2" : "${local.account_name}-ec2-${each.key}"
+  name = "${local.account_name}-ec2-${each.key}"
   role = aws_iam_role.ec2[each.key].name
 }
