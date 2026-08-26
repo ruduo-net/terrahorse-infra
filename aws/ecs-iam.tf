@@ -202,6 +202,21 @@ data "aws_iam_policy_document" "github-actions-deploy" {
     resources = ["arn:aws:ssm:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:parameter/terrahorse/${each.key}/ec2/*"]
     actions   = ["ssm:PutParameter"]
   }
+
+  dynamic "statement" {
+    for_each = each.key == "dev" ? [true] : []
+
+    content {
+      sid    = "ProtectDatabaseOwnedSaleorTokens"
+      effect = "Deny"
+
+      resources = [
+        "arn:aws:ssm:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:parameter/terrahorse/dev/ec2/SALEOR_CATALOG_APP_TOKEN",
+        "arn:aws:ssm:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:parameter/terrahorse/dev/ec2/SALEOR_COMMERCE_APP_TOKEN",
+      ]
+      actions = ["ssm:PutParameter"]
+    }
+  }
 }
 
 resource "aws_iam_policy" "github-actions" {
