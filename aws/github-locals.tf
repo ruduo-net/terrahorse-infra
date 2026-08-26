@@ -62,7 +62,6 @@ locals {
 
   github_environment_secret_names = {
     "aws-dev" = [
-      "SALEOR_COMMERCE_APP_TOKEN",
       "COMMERCE_EVENT_HMAC_KEY",
       "MONTONIO_ACCESS_KEY",
       "MONTONIO_SECRET_KEY",

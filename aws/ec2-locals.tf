@@ -11,33 +11,30 @@ locals {
       min_size             = 1
       desired_capacity     = 1
       max_size             = 1
+      database_owned_runtime_parameters = toset([
+        "SALEOR_CATALOG_APP_TOKEN",
+        "SALEOR_COMMERCE_APP_TOKEN",
+      ])
     }
     prod = {
-      name                 = "${local.account_name}-prod-host"
-      instance_type        = "t4g.small"
-      availability_zone    = local.network.primary_az
-      root_volume_size_gib = 20
-      data_volume_size_gib = 2
-      data_volume_type     = "gp3"
-      compose_file         = "/opt/terrahorse/app/compose.ec2.yml"
-      min_size             = 0
-      desired_capacity     = 0
-      max_size             = 1
+      name                              = "${local.account_name}-prod-host"
+      instance_type                     = "t4g.small"
+      availability_zone                 = local.network.primary_az
+      root_volume_size_gib              = 20
+      data_volume_size_gib              = 2
+      data_volume_type                  = "gp3"
+      compose_file                      = "/opt/terrahorse/app/compose.ec2.yml"
+      min_size                          = 0
+      desired_capacity                  = 0
+      max_size                          = 1
+      database_owned_runtime_parameters = toset([])
     }
   }
-}
 
-moved {
-  from = aws_ebs_volume.data
-  to   = aws_ebs_volume.data["dev"]
-}
-
-moved {
-  from = aws_launch_template.ec2
-  to   = aws_launch_template.ec2["dev"]
-}
-
-moved {
-  from = aws_autoscaling_group.ec2
-  to   = aws_autoscaling_group.ec2["dev"]
+  database_owned_runtime_parameter_arns = {
+    for environment, config in local.ec2_environments : environment => [
+      for name in config.database_owned_runtime_parameters :
+      "arn:aws:ssm:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:parameter/terrahorse/${environment}/ec2/${name}"
+    ]
+  }
 }

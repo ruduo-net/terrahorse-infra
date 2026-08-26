@@ -11,17 +11,23 @@ data "aws_iam_policy_document" "ec2-trust" {
 }
 
 resource "aws_iam_role" "ec2" {
-  name               = "${local.account_name}-ec2"
+  for_each = local.ec2_environments
+
+  name               = "${local.account_name}-ec2-${each.key}"
   assume_role_policy = data.aws_iam_policy_document.ec2-trust.json
 }
 
 resource "aws_iam_role_policy_attachment" "ec2-ssm" {
-  role       = aws_iam_role.ec2.name
+  for_each = local.ec2_environments
+
+  role       = aws_iam_role.ec2[each.key].name
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 
 resource "aws_iam_role_policy_attachment" "ec2-ecr-read-only" {
-  role       = aws_iam_role.ec2.name
+  for_each = local.ec2_environments
+
+  role       = aws_iam_role.ec2[each.key].name
   policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
 }
 
@@ -39,12 +45,16 @@ data "aws_iam_policy_document" "ec2-volume" {
 }
 
 resource "aws_iam_role_policy" "ec2-volume" {
-  name   = "${local.account_name}-ec2-volume"
-  role   = aws_iam_role.ec2.id
+  for_each = local.ec2_environments
+
+  name   = "${local.account_name}-ec2-volume-${each.key}"
+  role   = aws_iam_role.ec2[each.key].id
   policy = data.aws_iam_policy_document.ec2-volume.json
 }
 
 data "aws_iam_policy_document" "ec2-parameters" {
+  for_each = local.ec2_environments
+
   statement {
     effect = "Allow"
 
@@ -54,7 +64,7 @@ data "aws_iam_policy_document" "ec2-parameters" {
     ]
 
     resources = [
-      "arn:aws:ssm:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:parameter/terrahorse/*",
+      "arn:aws:ssm:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:parameter/terrahorse/${each.key}/*",
     ]
   }
 
@@ -63,8 +73,19 @@ data "aws_iam_policy_document" "ec2-parameters" {
     actions = ["ssm:PutParameter"]
 
     resources = [
-      "arn:aws:ssm:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:parameter/terrahorse/*/ec2/deploy/status",
+      "arn:aws:ssm:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:parameter/terrahorse/${each.key}/ec2/deploy/status",
     ]
+  }
+
+  dynamic "statement" {
+    for_each = length(local.database_owned_runtime_parameter_arns[each.key]) == 0 ? [] : [local.database_owned_runtime_parameter_arns[each.key]]
+
+    content {
+      sid       = "PublishDatabaseOwnedRuntimeParameters"
+      effect    = "Allow"
+      actions   = ["ssm:PutParameter"]
+      resources = statement.value
+    }
   }
 
   statement {
@@ -75,12 +96,16 @@ data "aws_iam_policy_document" "ec2-parameters" {
 }
 
 resource "aws_iam_role_policy" "ec2-parameters" {
-  name   = "${local.account_name}-ec2-parameters"
-  role   = aws_iam_role.ec2.id
-  policy = data.aws_iam_policy_document.ec2-parameters.json
+  for_each = local.ec2_environments
+
+  name   = "${local.account_name}-ec2-parameters-${each.key}"
+  role   = aws_iam_role.ec2[each.key].id
+  policy = data.aws_iam_policy_document.ec2-parameters[each.key].json
 }
 
 resource "aws_iam_instance_profile" "ec2" {
-  name = "${local.account_name}-ec2"
-  role = aws_iam_role.ec2.name
+  for_each = local.ec2_environments
+
+  name = "${local.account_name}-ec2-${each.key}"
+  role = aws_iam_role.ec2[each.key].name
 }

@@ -182,11 +182,32 @@ data "aws_iam_policy_document" "github-actions-deploy" {
     actions   = ["ssm:GetParameter"]
   }
 
+  dynamic "statement" {
+    for_each = length(local.database_owned_runtime_parameter_arns[each.key]) == 0 ? [] : [local.database_owned_runtime_parameter_arns[each.key]]
+
+    content {
+      sid       = "Ec2DatabaseOwnedRuntimeParameters"
+      resources = statement.value
+      actions   = ["ssm:GetParameter"]
+    }
+  }
+
   statement {
     sid       = "Ec2RuntimeParameterSync"
     effect    = "Allow"
     resources = ["arn:aws:ssm:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:parameter/terrahorse/${each.key}/ec2/*"]
     actions   = ["ssm:PutParameter"]
+  }
+
+  dynamic "statement" {
+    for_each = length(local.database_owned_runtime_parameter_arns[each.key]) == 0 ? [] : [local.database_owned_runtime_parameter_arns[each.key]]
+
+    content {
+      sid       = "ProtectDatabaseOwnedRuntimeParameters"
+      effect    = "Deny"
+      resources = statement.value
+      actions   = ["ssm:PutParameter"]
+    }
   }
 }
 

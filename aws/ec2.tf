@@ -74,7 +74,7 @@ resource "aws_launch_template" "ec2" {
   instance_type = each.value.instance_type
 
   iam_instance_profile {
-    name = aws_iam_instance_profile.ec2.name
+    name = aws_iam_instance_profile.ec2[each.key].name
   }
 
   block_device_mappings {
@@ -108,8 +108,8 @@ resource "aws_launch_template" "ec2" {
         Environment = each.key
       },
       length([
-        aws_iam_role_policy_attachment.ec2-ssm.id,
-        aws_iam_role_policy_attachment.ec2-ecr-read-only.id,
+        aws_iam_role_policy_attachment.ec2-ssm[each.key].id,
+        aws_iam_role_policy_attachment.ec2-ecr-read-only[each.key].id,
       ]) > 0 ? {} : {}
     )
   }
