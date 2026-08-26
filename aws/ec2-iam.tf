@@ -78,17 +78,13 @@ data "aws_iam_policy_document" "ec2-parameters" {
   }
 
   dynamic "statement" {
-    for_each = each.key == "dev" ? [true] : []
+    for_each = length(local.database_owned_runtime_parameter_arns[each.key]) == 0 ? [] : [local.database_owned_runtime_parameter_arns[each.key]]
 
     content {
-      sid     = "PublishDevSaleorAppTokens"
-      effect  = "Allow"
-      actions = ["ssm:PutParameter"]
-
-      resources = [
-        "arn:aws:ssm:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:parameter/terrahorse/dev/ec2/SALEOR_CATALOG_APP_TOKEN",
-        "arn:aws:ssm:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:parameter/terrahorse/dev/ec2/SALEOR_COMMERCE_APP_TOKEN",
-      ]
+      sid       = "PublishDatabaseOwnedRuntimeParameters"
+      effect    = "Allow"
+      actions   = ["ssm:PutParameter"]
+      resources = statement.value
     }
   }
 

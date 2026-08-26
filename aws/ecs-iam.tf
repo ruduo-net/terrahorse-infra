@@ -183,16 +183,12 @@ data "aws_iam_policy_document" "github-actions-deploy" {
   }
 
   dynamic "statement" {
-    for_each = each.key == "dev" ? [true] : []
+    for_each = length(local.database_owned_runtime_parameter_arns[each.key]) == 0 ? [] : [local.database_owned_runtime_parameter_arns[each.key]]
 
     content {
-      sid = "Ec2DatabaseOwnedSaleorTokens"
-
-      resources = [
-        "arn:aws:ssm:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:parameter/terrahorse/dev/ec2/SALEOR_CATALOG_APP_TOKEN",
-        "arn:aws:ssm:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:parameter/terrahorse/dev/ec2/SALEOR_COMMERCE_APP_TOKEN",
-      ]
-      actions = ["ssm:GetParameter"]
+      sid       = "Ec2DatabaseOwnedRuntimeParameters"
+      resources = statement.value
+      actions   = ["ssm:GetParameter"]
     }
   }
 
@@ -204,17 +200,13 @@ data "aws_iam_policy_document" "github-actions-deploy" {
   }
 
   dynamic "statement" {
-    for_each = each.key == "dev" ? [true] : []
+    for_each = length(local.database_owned_runtime_parameter_arns[each.key]) == 0 ? [] : [local.database_owned_runtime_parameter_arns[each.key]]
 
     content {
-      sid    = "ProtectDatabaseOwnedSaleorTokens"
-      effect = "Deny"
-
-      resources = [
-        "arn:aws:ssm:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:parameter/terrahorse/dev/ec2/SALEOR_CATALOG_APP_TOKEN",
-        "arn:aws:ssm:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:parameter/terrahorse/dev/ec2/SALEOR_COMMERCE_APP_TOKEN",
-      ]
-      actions = ["ssm:PutParameter"]
+      sid       = "ProtectDatabaseOwnedRuntimeParameters"
+      effect    = "Deny"
+      resources = statement.value
+      actions   = ["ssm:PutParameter"]
     }
   }
 }
