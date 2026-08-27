@@ -270,7 +270,8 @@ reconcile_once() {
   install -D -m 0644 "$${candidate}/docker/media/nginx.conf" "$${app_dir}/docker/media/nginx.conf"
   # Compose recreates only changed services; restarting the systemd unit would
   # run its `down` hook and unnecessarily disconnect the Cloudflare tunnel.
-  docker compose --env-file "$${app_dir}/.env" -f "$${app_dir}/compose.ec2.yml" up -d >/dev/null
+  docker compose --env-file "$${app_dir}/.env" -f "$${app_dir}/compose.ec2.yml" up -d --remove-orphans >/dev/null
+  systemctl start terrahorse.service
   healthy=false
   for attempt in $(seq 1 12); do
     if curl -fsS http://127.0.0.1:3000/health >/dev/null 2>&1 && \
@@ -287,7 +288,7 @@ reconcile_once() {
     if [ -d "$${rollback_dir}" ]; then
       rm -rf "$${app_dir}"
       mv "$${rollback_dir}" "$${app_dir}"
-      docker compose --env-file "$${app_dir}/.env" -f "$${app_dir}/compose.ec2.yml" up -d >/dev/null || true
+      docker compose --env-file "$${app_dir}/.env" -f "$${app_dir}/compose.ec2.yml" up -d --remove-orphans >/dev/null || true
     else
       rm -rf "$${app_dir}"
       mkdir -p "$${app_dir}"
