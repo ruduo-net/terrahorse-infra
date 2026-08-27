@@ -268,24 +268,38 @@ reconcile_once() {
   cp "$${candidate}/compose.ec2.yml" "$${app_dir}/compose.ec2.yml"
   cp "$${candidate}/.env" "$${app_dir}/.env"
   install -D -m 0644 "$${candidate}/docker/media/nginx.conf" "$${app_dir}/docker/media/nginx.conf"
-  systemctl restart terrahorse.service
+  # Compose recreates only changed services; restarting the systemd unit would
+  # run its `down` hook and unnecessarily disconnect the Cloudflare tunnel.
+  docker compose --env-file "$${app_dir}/.env" -f "$${app_dir}/compose.ec2.yml" up -d --remove-orphans >/dev/null
+  proxy_ready=true
+  if ! docker compose --env-file "$${app_dir}/.env" -f "$${app_dir}/compose.ec2.yml" exec -T media nginx -t >/dev/null || \
+    ! docker compose --env-file "$${app_dir}/.env" -f "$${app_dir}/compose.ec2.yml" exec -T media nginx -s reload >/dev/null; then
+    proxy_ready=false
+  fi
+  if [ "$${proxy_ready}" = true ]; then
+    systemctl start terrahorse.service
+  fi
   healthy=false
-  for attempt in $(seq 1 12); do
-    if curl -fsS http://127.0.0.1:3000/health >/dev/null 2>&1 && \
-      curl -ksSf https://127.0.0.1:8443/graphql/ \
-        -H 'Content-Type: application/json' \
-        --data '{"query":"{ __typename }"}' >/dev/null 2>&1; then
-      healthy=true
-      break
-    fi
-    sleep 5
-  done
+  if [ "$${proxy_ready}" = true ]; then
+    for attempt in $(seq 1 12); do
+      if curl -fsS http://127.0.0.1:3000/health >/dev/null 2>&1 && \
+        curl -ksSf https://127.0.0.1:8443/graphql/ \
+          -H 'Content-Type: application/json' \
+          --data '{"query":"{ __typename }"}' >/dev/null 2>&1; then
+        healthy=true
+        break
+      fi
+      sleep 5
+    done
+  fi
   if [ "$${healthy}" != true ]; then
-    write_status rolled_back "$${release_image}" "$${deployment_id}" "Candidate failed health check; previous release restored"
+    write_status rolled_back "$${release_image}" "$${deployment_id}" "Candidate failed proxy validation or health check; previous release restored"
     if [ -d "$${rollback_dir}" ]; then
       rm -rf "$${app_dir}"
       mv "$${rollback_dir}" "$${app_dir}"
-      systemctl restart terrahorse.service || true
+      docker compose --env-file "$${app_dir}/.env" -f "$${app_dir}/compose.ec2.yml" up -d --remove-orphans >/dev/null || true
+      docker compose --env-file "$${app_dir}/.env" -f "$${app_dir}/compose.ec2.yml" exec -T media nginx -t >/dev/null || true
+      docker compose --env-file "$${app_dir}/.env" -f "$${app_dir}/compose.ec2.yml" exec -T media nginx -s reload >/dev/null || true
     else
       rm -rf "$${app_dir}"
       mkdir -p "$${app_dir}"
@@ -338,13 +352,12 @@ After=docker.service opt-terrahorse-data.mount network-online.target
 Wants=network-online.target
 
 [Service]
-Type=simple
+Type=oneshot
+RemainAfterExit=yes
 WorkingDirectory=/opt/terrahorse/app
 ExecStartPre=/usr/bin/test -f ${compose_file}
-ExecStart=/usr/bin/docker compose -f ${compose_file} up
+ExecStart=/usr/bin/docker compose -f ${compose_file} up -d
 ExecStop=/usr/bin/docker compose -f ${compose_file} down
-Restart=always
-RestartSec=10
 
 [Install]
 WantedBy=multi-user.target
