@@ -5,8 +5,7 @@ environment="${environment}"
 dashboard_admin_email="${dashboard_admin_email}"
 metadata_token="$(curl -fsS -X PUT -H 'X-aws-ec2-metadata-token-ttl-seconds: 21600' http://169.254.169.254/latest/api/token)"
 instance_id="$(curl -fsS -H "X-aws-ec2-metadata-token: $${metadata_token}" http://169.254.169.254/latest/meta-data/instance-id)"
-region="$(curl -fsS -H "X-aws-ec2-metadata-token: $${metadata_token}" http://169.254.169.254/latest/dynamic/instance-identity/document | awk -F'"' '/"region"/ { print $4 }')"
-registry="$(aws sts get-caller-identity --query Account --output text).dkr.ecr.$${region}.amazonaws.com"
+registry="$(aws sts get-caller-identity --query Account --output text).dkr.ecr.$${AWS_REGION}.amazonaws.com"
 desired_parameter="/terrahorse/$${environment}/ec2/deploy/desired"
 deployment_parameter="/terrahorse/$${environment}/ec2/deploy/deployment"
 status_parameter="/terrahorse/$${environment}/ec2/deploy/status"
@@ -29,7 +28,7 @@ write_status() {
 }
 
 ensure_ecr_login() {
-  aws ecr get-login-password --region "$${region}" |
+  aws ecr get-login-password |
     docker login --username AWS --password-stdin "$${registry}" >/dev/null
 }
 

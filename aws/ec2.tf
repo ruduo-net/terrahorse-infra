@@ -81,6 +81,12 @@ locals {
     for environment, config in local.ec2_environments : environment => "#cloud-config\n${yamlencode({
       write_files = [
         {
+          path        = "/etc/terrahorse/aws.env"
+          owner       = "root:root"
+          permissions = "0644"
+          content     = "AWS_REGION=${data.aws_region.current.region}\n"
+        },
+        {
           path        = "/usr/local/sbin/terrahorse-bootstrap"
           owner       = "root:root"
           permissions = "0755"

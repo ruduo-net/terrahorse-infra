@@ -1,5 +1,8 @@
 #!/bin/bash
 set -euo pipefail
+set -a
+. /etc/terrahorse/aws.env
+set +a
 
 dnf install -y awscli-2 docker jq openssl util-linux xfsprogs
 install -d -m 0755 /usr/local/lib/docker/cli-plugins
@@ -27,23 +30,16 @@ metadata_token=$(curl -fsS -X PUT \
 instance_id=$(curl -fsS \
   -H "X-aws-ec2-metadata-token: $${metadata_token}" \
   http://169.254.169.254/latest/meta-data/instance-id)
-aws_region=$(curl -fsS \
-  -H "X-aws-ec2-metadata-token: $${metadata_token}" \
-  http://169.254.169.254/latest/dynamic/instance-identity/document | \
-  awk -F'"' '/"region"/ { print $4 }')
-
 log "Waiting for data volume ${data_volume_id} to attach to instance $${instance_id}"
 last_volume_status=""
 volume_check=0
 while true; do
   volume_check=$((volume_check + 1))
   volume_state=$(aws ec2 describe-volumes \
-    --region "$${aws_region}" \
     --volume-ids "${data_volume_id}" \
     --query 'Volumes[0].State' \
     --output text 2>/dev/null || true)
   attached_instance_id=$(aws ec2 describe-volumes \
-    --region "$${aws_region}" \
     --volume-ids "${data_volume_id}" \
     --query 'Volumes[0].Attachments[0].InstanceId' \
     --output text 2>/dev/null || true)
@@ -57,7 +53,6 @@ while true; do
   if [ "$${volume_state}" = "available" ]; then
     log "Attaching data volume ${data_volume_id}"
     aws ec2 attach-volume \
-      --region "$${aws_region}" \
       --volume-id "${data_volume_id}" \
       --instance-id "$${instance_id}" \
       --device /dev/sdf >/dev/null 2>&1 || true
@@ -109,8 +104,8 @@ systemctl start docker
 aws_account_id=$(aws sts get-caller-identity \
   --query Account \
   --output text)
-ecr_registry="$${aws_account_id}.dkr.ecr.$${aws_region}.amazonaws.com"
-until aws ecr get-login-password --region "$${aws_region}" | \
+ecr_registry="$${aws_account_id}.dkr.ecr.$${AWS_REGION}.amazonaws.com"
+until aws ecr get-login-password | \
   docker login --username AWS --password-stdin "$${ecr_registry}"; do
   sleep 15
 done
