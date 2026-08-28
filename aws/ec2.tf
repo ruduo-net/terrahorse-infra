@@ -102,7 +102,8 @@ resource "aws_launch_template" "ec2" {
     security_groups             = [aws_security_group.ec2.id]
   }
 
-  user_data = base64encode(templatefile("${path.module}/user_data/ec2.sh.tftpl", {
+  # EC2 caps decoded user data at 16 KiB; cloud-init transparently expands gzip payloads.
+  user_data = base64gzip(templatefile("${path.module}/user_data/ec2.sh.tftpl", {
     environment           = each.key
     data_volume_id        = aws_ebs_volume.data[each.key].id
     compose_file          = each.value.compose_file
