@@ -76,6 +76,29 @@ resource "aws_ebs_volume" "data" {
   }
 }
 
+locals {
+  ec2_cloud_init = {
+    for environment, config in local.ec2_environments : environment => "#cloud-config\n${yamlencode({
+      write_files = [
+        {
+          path        = "/usr/local/sbin/terrahorse-bootstrap"
+          owner       = "root:root"
+          permissions = "0755"
+          content = templatefile("${path.module}/user_data/ec2.sh.tftpl", {
+            environment           = environment
+            data_volume_id        = aws_ebs_volume.data[environment].id
+            compose_file          = config.compose_file
+            dashboard_admin_email = config.dashboard_admin_email
+          })
+        }
+      ]
+      runcmd = [
+        ["/usr/local/sbin/terrahorse-bootstrap"]
+      ]
+    })}"
+  }
+}
+
 resource "aws_launch_template" "ec2" {
   for_each      = local.ec2_environments
   name_prefix   = "${each.value.name}-"
@@ -103,12 +126,7 @@ resource "aws_launch_template" "ec2" {
   }
 
   # EC2 caps decoded user data at 16 KiB; cloud-init transparently expands gzip payloads.
-  user_data = base64gzip(templatefile("${path.module}/user_data/ec2.sh.tftpl", {
-    environment           = each.key
-    data_volume_id        = aws_ebs_volume.data[each.key].id
-    compose_file          = each.value.compose_file
-    dashboard_admin_email = each.value.dashboard_admin_email
-  }))
+  user_data = base64gzip(local.ec2_cloud_init[each.key])
 
   tag_specifications {
     resource_type = "instance"
