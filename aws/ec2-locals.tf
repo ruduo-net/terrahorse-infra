@@ -1,16 +1,17 @@
 locals {
   ec2_environments = {
     dev = {
-      name                 = "${local.account_name}-dev-host"
-      instance_type        = "t4g.small"
-      availability_zone    = local.network.primary_az
-      root_volume_size_gib = 20
-      data_volume_size_gib = 2
-      data_volume_type     = "gp3"
-      compose_file         = "/opt/terrahorse/app/compose.ec2.yml"
-      min_size             = 1
-      desired_capacity     = 1
-      max_size             = 1
+      name                  = "${local.account_name}-dev-host"
+      instance_type         = "t4g.small"
+      availability_zone     = local.network.primary_az
+      root_volume_size_gib  = 20
+      data_volume_size_gib  = 2
+      data_volume_type      = "gp3"
+      compose_file          = "/opt/terrahorse/app/compose.ec2.yml"
+      dashboard_admin_email = "putinas.piliponis@ruduo.net"
+      min_size              = 1
+      desired_capacity      = 1
+      max_size              = 1
       database_owned_runtime_parameters = toset([
         "SALEOR_CATALOG_APP_TOKEN",
         "SALEOR_COMMERCE_APP_TOKEN",
@@ -24,6 +25,7 @@ locals {
       data_volume_size_gib              = 2
       data_volume_type                  = "gp3"
       compose_file                      = "/opt/terrahorse/app/compose.ec2.yml"
+      dashboard_admin_email             = "putinas.piliponis@ruduo.net"
       min_size                          = 0
       desired_capacity                  = 0
       max_size                          = 1

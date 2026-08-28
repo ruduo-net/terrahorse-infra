@@ -33,12 +33,8 @@ locals {
       STOREFRONT_PUBLIC_URL                  = "https://dev.terrahorse.lt"
       SALEOR_ALLOWED_HOSTS                   = "localhost,127.0.0.1,api,dev.terrahorse.lt,api-dev.terrahorse.lt"
       SALEOR_ALLOWED_CLIENT_HOSTS            = "localhost,127.0.0.1,dev.terrahorse.lt,api-dev.terrahorse.lt,dashboard-dev.terrahorse.lt"
-      ORDER_EMAIL_SMTP_HOST                  = "smtp.purelymail.com"
-      ORDER_EMAIL_SMTP_PORT                  = "465"
-      ORDER_EMAIL_SMTP_SECURITY              = "tls"
-      ORDER_EMAIL_SMTP_USERNAME              = "info@terrahorse.lt"
-      ORDER_EMAIL_FROM_ADDRESS               = "info@terrahorse.lt"
-      ORDER_EMAIL_FROM_NAME                  = "TerraHorse"
+      DEFAULT_FROM_EMAIL                     = "info@terrahorse.lt"
+      EMAIL_FROM_NAME                        = "TerraHorse"
       AWS_DEPLOY_ROLE_ARN                    = aws_iam_role.github-actions-deploy["dev"].arn
     }
     "aws-prod" = {
@@ -62,12 +58,8 @@ locals {
       STOREFRONT_PUBLIC_URL                  = "https://terrahorse.lt"
       SALEOR_ALLOWED_HOSTS                   = "localhost,127.0.0.1,api,terrahorse.lt,api.terrahorse.lt"
       SALEOR_ALLOWED_CLIENT_HOSTS            = "localhost,127.0.0.1,terrahorse.lt,dashboard.terrahorse.lt"
-      ORDER_EMAIL_SMTP_HOST                  = "smtp.purelymail.com"
-      ORDER_EMAIL_SMTP_PORT                  = "465"
-      ORDER_EMAIL_SMTP_SECURITY              = "tls"
-      ORDER_EMAIL_SMTP_USERNAME              = "info@terrahorse.lt"
-      ORDER_EMAIL_FROM_ADDRESS               = "info@terrahorse.lt"
-      ORDER_EMAIL_FROM_NAME                  = "TerraHorse"
+      DEFAULT_FROM_EMAIL                     = "info@terrahorse.lt"
+      EMAIL_FROM_NAME                        = "TerraHorse"
       AWS_DEPLOY_ROLE_ARN                    = aws_iam_role.github-actions-deploy["prod"].arn
     }
   }
@@ -81,7 +73,7 @@ locals {
       "POSTGRES_PASSWORD",
       "SECRET_KEY",
       "RSA_PRIVATE_KEY",
-      "ORDER_EMAIL_SMTP_PASSWORD",
+      "EMAIL_URL",
     ]
     "aws-prod" = [
       "SALEOR_COMMERCE_APP_TOKEN",
@@ -92,7 +84,7 @@ locals {
       "POSTGRES_PASSWORD",
       "SECRET_KEY",
       "RSA_PRIVATE_KEY",
-      "ORDER_EMAIL_SMTP_PASSWORD",
+      "EMAIL_URL",
     ]
   }
 
