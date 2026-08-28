@@ -84,7 +84,7 @@ locals {
           path        = "/etc/terrahorse/aws.env"
           owner       = "root:root"
           permissions = "0644"
-          content     = "AWS_REGION=${data.aws_region.current.region}\n"
+          content     = "export AWS_REGION=${data.aws_region.current.region}\n"
         },
         {
           path        = "/usr/local/sbin/terrahorse-bootstrap"

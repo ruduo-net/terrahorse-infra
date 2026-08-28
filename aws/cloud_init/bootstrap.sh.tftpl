@@ -1,7 +1,6 @@
 #!/bin/bash
 set -euo pipefail
 . /etc/terrahorse/aws.env
-export AWS_REGION
 
 dnf install -y awscli-2 docker jq openssl util-linux xfsprogs
 install -d -m 0755 /usr/local/lib/docker/cli-plugins

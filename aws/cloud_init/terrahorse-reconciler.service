@@ -6,7 +6,6 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-EnvironmentFile=/etc/terrahorse/aws.env
 ExecStart=/usr/local/sbin/terrahorse-reconcile
 Restart=always
 RestartSec=10
