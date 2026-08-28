@@ -233,7 +233,7 @@ reconcile_once() {
     jq -r 'to_entries[] | "\(.key)=\(.value)"' >> "$${env_file}"
   printf 'STOREFRONT_IMAGE=%s\nAPP_VERSION=%s\nNUXT_PUBLIC_ENVIRONMENT=%s\n' \
     "$${storefront_image}" "$${app_version}" "$${runtime_environment}" >> "$${env_file}"
-  for name in SALEOR_COMMERCE_APP_TOKEN COMMERCE_EVENT_HMAC_KEY MONTONIO_ACCESS_KEY MONTONIO_SECRET_KEY CLOUDFLARED_TUNNEL_TOKEN POSTGRES_PASSWORD SECRET_KEY ORDER_EMAIL_SMTP_PASSWORD; do
+  for name in SALEOR_COMMERCE_APP_TOKEN COMMERCE_EVENT_HMAC_KEY MONTONIO_ACCESS_KEY MONTONIO_SECRET_KEY CLOUDFLARED_TUNNEL_TOKEN POSTGRES_PASSWORD SECRET_KEY EMAIL_URL; do
     printf '%s=' "$${name}" >> "$${env_file}"
     aws ssm get-parameter --name "/terrahorse/$${environment}/ec2/$${name}" --with-decryption --query Parameter.Value --output text >> "$${env_file}"
     printf '\n' >> "$${env_file}"
