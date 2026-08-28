@@ -84,12 +84,32 @@ locals {
           path        = "/usr/local/sbin/terrahorse-bootstrap"
           owner       = "root:root"
           permissions = "0755"
-          content = templatefile("${path.module}/user_data/ec2.sh.tftpl", {
+          content = templatefile("${path.module}/cloud_init/bootstrap.sh.tftpl", {
+            data_volume_id = aws_ebs_volume.data[environment].id
+          })
+        },
+        {
+          path        = "/usr/local/sbin/terrahorse-reconcile"
+          owner       = "root:root"
+          permissions = "0755"
+          content = templatefile("${path.module}/cloud_init/terrahorse-reconcile.sh.tftpl", {
             environment           = environment
-            data_volume_id        = aws_ebs_volume.data[environment].id
-            compose_file          = config.compose_file
             dashboard_admin_email = config.dashboard_admin_email
           })
+        },
+        {
+          path        = "/etc/systemd/system/terrahorse.service"
+          owner       = "root:root"
+          permissions = "0644"
+          content = templatefile("${path.module}/cloud_init/terrahorse.service.tftpl", {
+            compose_file = config.compose_file
+          })
+        },
+        {
+          path        = "/etc/systemd/system/terrahorse-reconciler.service"
+          owner       = "root:root"
+          permissions = "0644"
+          content     = file("${path.module}/cloud_init/terrahorse-reconciler.service")
         }
       ]
       runcmd = [
