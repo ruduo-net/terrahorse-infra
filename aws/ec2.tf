@@ -76,6 +76,55 @@ resource "aws_ebs_volume" "data" {
   }
 }
 
+locals {
+  ec2_cloud_init = {
+    for environment, config in local.ec2_environments : environment => "#cloud-config\n${yamlencode({
+      write_files = [
+        {
+          path        = "/etc/terrahorse/aws.env"
+          owner       = "root:root"
+          permissions = "0644"
+          content     = "AWS_REGION=${data.aws_region.current.region}\n"
+        },
+        {
+          path        = "/usr/local/sbin/terrahorse-bootstrap"
+          owner       = "root:root"
+          permissions = "0755"
+          content = templatefile("${path.module}/cloud_init/bootstrap.sh.tftpl", {
+            data_volume_id = aws_ebs_volume.data[environment].id
+          })
+        },
+        {
+          path        = "/usr/local/sbin/terrahorse-reconcile"
+          owner       = "root:root"
+          permissions = "0755"
+          content = templatefile("${path.module}/cloud_init/terrahorse-reconcile.sh.tftpl", {
+            environment           = environment
+            dashboard_admin_email = config.dashboard_admin_email
+          })
+        },
+        {
+          path        = "/etc/systemd/system/terrahorse.service"
+          owner       = "root:root"
+          permissions = "0644"
+          content = templatefile("${path.module}/cloud_init/terrahorse.service.tftpl", {
+            compose_file = config.compose_file
+          })
+        },
+        {
+          path        = "/etc/systemd/system/terrahorse-reconciler.service"
+          owner       = "root:root"
+          permissions = "0644"
+          content     = file("${path.module}/cloud_init/terrahorse-reconciler.service")
+        }
+      ]
+      runcmd = [
+        ["/usr/local/sbin/terrahorse-bootstrap"]
+      ]
+    })}"
+  }
+}
+
 resource "aws_launch_template" "ec2" {
   for_each      = local.ec2_environments
   name_prefix   = "${each.value.name}-"
@@ -102,12 +151,8 @@ resource "aws_launch_template" "ec2" {
     security_groups             = [aws_security_group.ec2.id]
   }
 
-  user_data = base64encode(templatefile("${path.module}/user_data/ec2.sh.tftpl", {
-    environment           = each.key
-    data_volume_id        = aws_ebs_volume.data[each.key].id
-    compose_file          = each.value.compose_file
-    dashboard_admin_email = each.value.dashboard_admin_email
-  }))
+  # EC2 caps decoded user data at 16 KiB; cloud-init transparently expands gzip payloads.
+  user_data = base64gzip(local.ec2_cloud_init[each.key])
 
   tag_specifications {
     resource_type = "instance"

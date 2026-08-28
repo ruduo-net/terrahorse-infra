@@ -1,0 +1,15 @@
+[Unit]
+Description=TerraHorse release reconciler
+Requires=network-online.target docker.service opt-terrahorse-data.mount
+After=network-online.target docker.service opt-terrahorse-data.mount
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/terrahorse/aws.env
+ExecStart=/usr/local/sbin/terrahorse-reconcile
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
