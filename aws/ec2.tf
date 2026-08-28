@@ -103,9 +103,10 @@ resource "aws_launch_template" "ec2" {
   }
 
   user_data = base64encode(templatefile("${path.module}/user_data/ec2.sh.tftpl", {
-    environment    = each.key
-    data_volume_id = aws_ebs_volume.data[each.key].id
-    compose_file   = each.value.compose_file
+    environment           = each.key
+    data_volume_id        = aws_ebs_volume.data[each.key].id
+    compose_file          = each.value.compose_file
+    dashboard_admin_email = each.value.dashboard_admin_email
   }))
 
   tag_specifications {

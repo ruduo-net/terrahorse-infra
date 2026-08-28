@@ -126,6 +126,7 @@ cat > /usr/local/sbin/terrahorse-reconcile <<'RECONCILE'
 set -euo pipefail
 
 environment="${environment}"
+dashboard_admin_email="${dashboard_admin_email}"
 metadata_token="$(curl -fsS -X PUT -H 'X-aws-ec2-metadata-token-ttl-seconds: 21600' http://169.254.169.254/latest/api/token)"
 instance_id="$(curl -fsS -H "X-aws-ec2-metadata-token: $${metadata_token}" http://169.254.169.254/latest/meta-data/instance-id)"
 region="$(curl -fsS -H "X-aws-ec2-metadata-token: $${metadata_token}" http://169.254.169.254/latest/dynamic/instance-identity/document | awk -F'"' '/"region"/ { print $4 }')"
@@ -257,6 +258,26 @@ reconcile_once() {
   done
   [ "$${database_ready}" = true ]
   docker compose --env-file "$${env_file}" -f "$${candidate}.tmp/compose.ec2.yml" run --rm api python3 manage.py migrate --noinput >/dev/null
+
+  dashboard_admin_state="$(
+    printf '%s\n' "SELECT concat_ws('|', is_staff::text, is_superuser::text, is_active::text) FROM account_user WHERE email = :'admin_email';" |
+      docker compose --env-file "$${env_file}" -f "$${candidate}.tmp/compose.ec2.yml" exec -T db \
+      psql -U saleor -d saleor --tuples-only --no-align \
+      --set=admin_email="$${dashboard_admin_email}"
+  )"
+  case "$${dashboard_admin_state}" in
+    "")
+      docker compose --env-file "$${env_file}" -f "$${candidate}.tmp/compose.ec2.yml" run --rm \
+        -e TERRAHORSE_DASHBOARD_ADMIN_EMAIL="$${dashboard_admin_email}" api \
+        python3 manage.py shell -c \
+        "import os; from django.contrib.auth import get_user_model; get_user_model().objects.create_superuser(email=os.environ['TERRAHORSE_DASHBOARD_ADMIN_EMAIL'], password=None); os._exit(0)"
+      ;;
+    true\|true\|true) ;;
+    *)
+      echo "Configured Dashboard administrator exists without active superuser privileges: $${dashboard_admin_email}" >&2
+      return 1
+      ;;
+  esac
 
   rollback_dir="$${app_dir}.rollback"
   rm -rf "$${rollback_dir}"
