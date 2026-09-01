@@ -1,7 +1,7 @@
 x-saleor-environment: &saleor-environment
   ALLOWED_HOSTS: saleor-api,localhost,127.0.0.1
-  CACHE_URL: redis://saleor-redis:6379/0
-  CELERY_BROKER_URL: redis://saleor-redis:6379/1
+  CACHE_URL: redis://saleor-cache:6379/0
+  CELERY_BROKER_URL: redis://saleor-cache:6379/1
   DATABASE_URL: postgres://saleor:${SALEOR_DATABASE_PASSWORD:?SALEOR_DATABASE_PASSWORD is required}@saleor-db:5432/saleor
   DEFAULT_CHANNEL_SLUG: terrahorse-e2e
   DEFAULT_FROM_EMAIL: noreply@terrahorse.invalid
@@ -14,7 +14,7 @@ x-saleor-environment: &saleor-environment
 
 services:
   saleor-db:
-    image: postgres:15.18-alpine3.23
+    image: postgres:15-alpine3.24
     environment:
       POSTGRES_DB: saleor
       POSTGRES_PASSWORD: ${SALEOR_DATABASE_PASSWORD:?SALEOR_DATABASE_PASSWORD is required}
@@ -28,18 +28,18 @@ services:
       - saleor-db:/var/lib/postgresql/data
     restart: unless-stopped
 
-  saleor-redis:
-    image: redis:7.4.10-alpine3.21
-    command: [redis-server, --save, '', --appendonly, 'no']
+  saleor-cache:
+    image: valkey/valkey:8.1-alpine3.24
+    command: [valkey-server, --save, '', --appendonly, 'no']
     healthcheck:
-      test: [CMD, redis-cli, ping]
+      test: [CMD, valkey-cli, ping]
       interval: 2s
       timeout: 3s
       retries: 30
     restart: unless-stopped
 
   saleor-setup:
-    image: ghcr.io/saleor/saleor:3.23.17
+    image: ghcr.io/saleor/saleor:3.23
     profiles: [setup]
     command: [sh, -c, 'python manage.py migrate --noinput && python /e2e/saleor-e2e.py seed']
     environment:
@@ -50,7 +50,7 @@ services:
     depends_on:
       saleor-db:
         condition: service_healthy
-      saleor-redis:
+      saleor-cache:
         condition: service_healthy
     volumes:
       - ${E2E_INFRA_ROOT:?E2E_INFRA_ROOT is required}/scripts/saleor-e2e.py:/e2e/saleor-e2e.py:ro
@@ -59,12 +59,12 @@ services:
     restart: 'no'
 
   saleor-api:
-    image: ghcr.io/saleor/saleor:3.23.17
+    image: ghcr.io/saleor/saleor:3.23
     environment: *saleor-environment
     depends_on:
       saleor-db:
         condition: service_healthy
-      saleor-redis:
+      saleor-cache:
         condition: service_healthy
     expose:
       - '8000'
@@ -85,7 +85,7 @@ services:
     restart: unless-stopped
 
   saleor-worker:
-    image: ghcr.io/saleor/saleor:3.23.17
+    image: ghcr.io/saleor/saleor:3.23
     command: [celery, --app, saleor.celeryconf:app, worker, -E, --loglevel, info, --concurrency, '2']
     environment: *saleor-environment
     depends_on:
@@ -94,7 +94,7 @@ services:
     restart: unless-stopped
 
   saleor-beat:
-    image: ghcr.io/saleor/saleor:3.23.17
+    image: ghcr.io/saleor/saleor:3.23
     command: [celery, --app, saleor.celeryconf:app, beat, --scheduler, saleor.schedulers.schedulers.DatabaseScheduler, --loglevel, info]
     environment: *saleor-environment
     depends_on:
@@ -103,7 +103,7 @@ services:
     restart: unless-stopped
 
   saleor-verify:
-    image: ghcr.io/saleor/saleor:3.23.17
+    image: ghcr.io/saleor/saleor:3.23
     profiles: [verify]
     command: [python, /e2e/saleor-e2e.py, verify]
     environment:
@@ -139,7 +139,7 @@ services:
 
   cloudflared:
     profiles: [tunnel]
-    image: cloudflare/cloudflared:2026.7.3
+    image: cloudflare/cloudflared:2026.8.2
     command: [tunnel, --no-autoupdate, --config, /etc/cloudflared/config.yml, run]
     volumes:
       - ${E2E_TUNNEL_CONFIG_FILE:?E2E_TUNNEL_CONFIG_FILE is required}:/etc/cloudflared/config.yml:ro

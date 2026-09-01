@@ -97,7 +97,7 @@ resource "aws_ecs_task_definition" "template" {
   container_definitions = jsonencode([
     {
       name      = "app"
-      image     = "public.ecr.aws/docker/library/node:24-alpine"
+      image     = "public.ecr.aws/docker/library/node:24.19.0-alpine3.24"
       essential = true
       command   = ["node", "-e", "require('http').createServer((_, response) => response.end('ok')).listen(3000)"]
 

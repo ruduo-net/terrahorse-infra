@@ -94,7 +94,7 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 
 compose_base config --quiet
-compose_base up -d --wait --wait-timeout 60 saleor-db saleor-redis
+compose_base up -d --wait --wait-timeout 60 saleor-db saleor-cache
 compose_base up -d saleor-setup
 compose_base wait saleor-setup
 protected_file "$state/runtime.env" 'Generated Saleor runtime file'

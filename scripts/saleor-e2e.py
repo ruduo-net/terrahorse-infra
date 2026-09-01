@@ -216,7 +216,7 @@ def verify():
         productType{slug hasVariants isShippingRequired} productVariants(first:2){edges{node{
           id sku weight{unit value} metadata{key value} quantityAvailable pricing{price{gross{amount currency}}}}}}}
     }""", {"slug": PRODUCT_SLUG, "channel": "terrahorse-e2e"})
-    if data["shop"]["version"] != "3.23.17":
+    if not data["shop"]["version"].startswith("3.23."):
         raise RuntimeError("unexpected-saleor-version")
     app = data["app"]
     if (
