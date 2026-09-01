@@ -1,8 +1,8 @@
 # TerraHorse E2E Infrastructure
 
 This repository owns the disposable `terrahorse-web-e2e` runtime behind
-`e2e.terrahorse.lt`. One Compose project contains PostgreSQL, Redis, Saleor
-`3.23.17`, a Celery worker, exactly one Celery Beat scheduler, the exact-SHA
+`e2e.terrahorse.lt`. One Compose project contains PostgreSQL, Valkey, the Saleor
+`3.23` patch line, a Celery worker, exactly one Celery Beat scheduler, the exact-SHA
 storefront, and the existing Cloudflared connector. Saleor has no published
 port or hostname; only the storefront is reachable through the existing
 tunnel.
@@ -52,7 +52,7 @@ ingress:
 Start resolves the storefront ref once, prepares the existing detached ignored
 worktree, creates fresh internal Saleor secrets, and runs these bounded stages:
 
-1. PostgreSQL and Redis health;
+1. PostgreSQL and Valkey health;
 2. Saleor migrations and deterministic seed;
 3. private API, app, webhook, delivery, and disposable-checkout verification;
 4. worker and the single Beat scheduler;
