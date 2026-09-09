@@ -79,7 +79,7 @@ locals {
       "SALEOR_EDITOR_APP_ID",
       "SALEOR_EDITOR_APP_TOKEN",
       "OPENAI_API_KEY",
-      "GITHUB_EDITOR_TOKEN",
+      "EDITOR_GITHUB_TOKEN",
     ]
     "aws-prod" = [
       "SALEOR_COMMERCE_APP_TOKEN",
@@ -94,7 +94,7 @@ locals {
       "SALEOR_EDITOR_APP_ID",
       "SALEOR_EDITOR_APP_TOKEN",
       "OPENAI_API_KEY",
-      "GITHUB_EDITOR_TOKEN",
+      "EDITOR_GITHUB_TOKEN",
     ]
   }
 
