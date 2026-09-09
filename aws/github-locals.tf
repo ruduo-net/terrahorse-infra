@@ -30,7 +30,7 @@ locals {
       SALEOR_PUBLIC_URL                      = "https://api-dev.terrahorse.lt"
       SALEOR_DASHBOARD_URL                   = "https://dashboard-dev.terrahorse.lt/"
       SALEOR_DASHBOARD_API_URL               = "https://api-dev.terrahorse.lt/graphql/"
-      STOREFRONT_PUBLIC_URL                  = "https://dev.terrahorse.lt"
+      SALEOR_STOREFRONT_URL                  = "https://dev.terrahorse.lt"
       SALEOR_ALLOWED_HOSTS                   = "localhost,127.0.0.1,api,dev.terrahorse.lt,api-dev.terrahorse.lt"
       SALEOR_ALLOWED_CLIENT_HOSTS            = "localhost,127.0.0.1,dev.terrahorse.lt,api-dev.terrahorse.lt,dashboard-dev.terrahorse.lt"
       DEFAULT_FROM_EMAIL                     = "info@terrahorse.lt"
@@ -55,7 +55,7 @@ locals {
       SALEOR_PUBLIC_URL                      = "https://api.terrahorse.lt"
       SALEOR_DASHBOARD_URL                   = "https://dashboard.terrahorse.lt/"
       SALEOR_DASHBOARD_API_URL               = "https://api.terrahorse.lt/graphql/"
-      STOREFRONT_PUBLIC_URL                  = "https://terrahorse.lt"
+      SALEOR_STOREFRONT_URL                  = "https://terrahorse.lt"
       SALEOR_ALLOWED_HOSTS                   = "localhost,127.0.0.1,api,terrahorse.lt,api.terrahorse.lt"
       SALEOR_ALLOWED_CLIENT_HOSTS            = "localhost,127.0.0.1,terrahorse.lt,dashboard.terrahorse.lt"
       DEFAULT_FROM_EMAIL                     = "info@terrahorse.lt"
@@ -64,6 +64,8 @@ locals {
     }
   }
 
+  # This is an inventory of required GitHub Environment secret names. Terraform creates the
+  # CLOUDFLARED_TUNNEL_TOKEN values in github.tf; operators supply every other value out of band.
   github_environment_secret_names = {
     "aws-dev" = [
       "COMMERCE_EVENT_HMAC_KEY",
@@ -74,6 +76,10 @@ locals {
       "SECRET_KEY",
       "RSA_PRIVATE_KEY",
       "EMAIL_URL",
+      "SALEOR_EDITOR_APP_ID",
+      "SALEOR_EDITOR_APP_TOKEN",
+      "OPENAI_API_KEY",
+      "GITHUB_EDITOR_TOKEN",
     ]
     "aws-prod" = [
       "SALEOR_COMMERCE_APP_TOKEN",
@@ -85,6 +91,10 @@ locals {
       "SECRET_KEY",
       "RSA_PRIVATE_KEY",
       "EMAIL_URL",
+      "SALEOR_EDITOR_APP_ID",
+      "SALEOR_EDITOR_APP_TOKEN",
+      "OPENAI_API_KEY",
+      "GITHUB_EDITOR_TOKEN",
     ]
   }
 

@@ -16,6 +16,8 @@ jobs:
           test ! -e scripts/ensure-e2e-saleor.mjs
           test "$(grep '^for name in .*; do$' scripts/run-e2e-storefront.sh)" = \
             'for name in MONTONIO_ACCESS_KEY MONTONIO_SECRET_KEY COMMERCE_EVENT_HMAC_KEY; do'
+          test "$(grep '^  for name in .*; do$' aws/cloud_init/terrahorse-reconcile.sh.tftpl)" = \
+            '  for name in SALEOR_COMMERCE_APP_TOKEN COMMERCE_EVENT_HMAC_KEY MONTONIO_ACCESS_KEY MONTONIO_SECRET_KEY CLOUDFLARED_TUNNEL_TOKEN POSTGRES_PASSWORD SECRET_KEY EMAIL_URL SALEOR_EDITOR_APP_ID SALEOR_EDITOR_APP_TOKEN OPENAI_API_KEY GITHUB_EDITOR_TOKEN; do'
           ! git grep -nEi 'shared[- ]saleor|SALEOR_E2E_ADMIN_TOKEN' -- ':!.github/workflows/ci.yml'
           APP_VERSION=test E2E_INFRA_ROOT=/tmp E2E_RUN_STATE_DIR=/tmp E2E_STOREFRONT_WORKTREE=/tmp \
             E2E_TUNNEL_CONFIG_FILE=/tmp/config E2E_TUNNEL_CREDENTIALS_FILE=/tmp/credentials \
