@@ -21,8 +21,9 @@ jobs:
             '  for name in SALEOR_COMMERCE_APP_TOKEN COMMERCE_EVENT_HMAC_KEY MONTONIO_ACCESS_KEY MONTONIO_SECRET_KEY CLOUDFLARED_TUNNEL_TOKEN POSTGRES_PASSWORD SECRET_KEY EMAIL_URL; do'
           test "$(grep '^    for name in OPENAI_API_KEY .*; do$' aws/cloud_init/terrahorse-reconcile-product-editor.sh.tftpl)" = \
             '    for name in OPENAI_API_KEY EDITOR_GITHUB_TOKEN; do'
-          test "$(grep '^    for name in SALEOR_EDITOR_APP_ID .*; do$' aws/cloud_init/terrahorse-reconcile-product-editor.sh.tftpl)" = \
-            '    for name in SALEOR_EDITOR_APP_ID SALEOR_EDITOR_APP_TOKEN; do'
+          test "$(grep -c 'aws ssm get-parameters' aws/cloud_init/terrahorse-reconcile-product-editor.sh.tftpl)" = 1
+          test "$(grep '^    --names .*SALEOR_EDITOR_APP_ID.*SALEOR_EDITOR_APP_TOKEN' aws/cloud_init/terrahorse-reconcile-product-editor.sh.tftpl)" = \
+            '    --names "$${parameter_prefix}/SALEOR_EDITOR_APP_ID" "$${parameter_prefix}/SALEOR_EDITOR_APP_TOKEN" \'
           ! grep -Eq 'OPENAI_API_KEY|EDITOR_GITHUB_TOKEN|SALEOR_EDITOR_APP_(ID|TOKEN)|product-editor' \
             aws/cloud_init/terrahorse-reconcile.sh.tftpl
           ! git grep -nEi 'shared[- ]saleor|SALEOR_E2E_ADMIN_TOKEN' -- ':!.github/workflows/ci.yml'
