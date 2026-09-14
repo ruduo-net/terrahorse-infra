@@ -63,11 +63,11 @@ ensure_internal_tls() {
   mv -f "$${temporary_certificate}" "$${certificate_path}"
 }
 
-stop_product_editor_project() {
-  local env_file="$1" compose_file="$2" attempt container_ids container_id
+stop_compose_project() {
+  local env_file="$1" compose_file="$2" project_name="$3" attempt container_ids container_id
   for attempt in $(seq 1 3); do
     docker compose --env-file "$${env_file}" -f "$${compose_file}" down --remove-orphans >/dev/null 2>&1 || true
-    if ! container_ids="$(docker ps -aq --filter label=com.docker.compose.project=terrahorse-product-editor)"; then
+    if ! container_ids="$(docker ps -aq --filter label=com.docker.compose.project="$${project_name}")"; then
       sleep 2
       continue
     fi
@@ -78,8 +78,16 @@ stop_product_editor_project() {
     done <<< "$${container_ids}"
     sleep 2
   done
-  container_ids="$(docker ps -aq --filter label=com.docker.compose.project=terrahorse-product-editor)" || return 1
+  container_ids="$(docker ps -aq --filter label=com.docker.compose.project="$${project_name}")" || return 1
   [ -z "$${container_ids}" ]
+}
+
+stop_product_editor_project() {
+  stop_compose_project "$1" "$2" terrahorse-product-editor
+}
+
+stop_main_project() {
+  stop_compose_project "$1" "$2" terrahorse-ec2
 }
 
 ensure_product_editor_network() {
@@ -89,10 +97,12 @@ ensure_product_editor_network() {
 
 start_and_verify_active_release() {
   local editor_expected=false attempt
-  docker compose --env-file "$${app_dir}/.env" -f "$${app_dir}/compose.ec2.yml" up -d --remove-orphans >/dev/null || return 1
   if [ "$${environment}" = dev ] && [ -f "$${app_dir}/compose.product-editor.yml" ]; then
     editor_expected=true
     ensure_product_editor_network || return 1
+  fi
+  docker compose --env-file "$${app_dir}/.env" -f "$${app_dir}/compose.ec2.yml" up -d --remove-orphans >/dev/null || return 1
+  if [ "$${editor_expected}" = true ]; then
     docker compose --env-file "$${app_dir}/.env" -f "$${app_dir}/compose.product-editor.yml" up -d --remove-orphans >/dev/null || return 1
   fi
   docker compose --env-file "$${app_dir}/.env" -f "$${app_dir}/compose.ec2.yml" exec -T media nginx -t >/dev/null || return 1
@@ -184,6 +194,9 @@ reconcile_once() {
   ensure_internal_tls
 
   ensure_ecr_login
+  if [ "$${environment}" = dev ] && [ "$${editor_available}" = true ]; then
+    ensure_product_editor_network
+  fi
   docker compose --env-file "$${env_file}" -f "$${candidate}.tmp/compose.ec2.yml" config >/dev/null
   docker compose --env-file "$${env_file}" -f "$${candidate}.tmp/compose.ec2.yml" pull >/dev/null
   if [ "$${environment}" = dev ] && [ "$${editor_available}" = true ]; then
@@ -297,6 +310,10 @@ reconcile_once() {
         sleep 5
       done
     else
+      until stop_main_project "$${app_dir}/.env" "$${app_dir}/compose.ec2.yml"; do
+        write_status deploying "$${release_image}" "$${deployment_id}" "Failure cleanup is waiting for the candidate stack to stop"
+        sleep 5
+      done
       rm -rf "$${app_dir}"
       mkdir -p "$${app_dir}"
       touch "$${candidate}/.rejected"
