@@ -150,6 +150,20 @@ data "aws_iam_policy_document" "github-actions-deploy" {
   }
 
   dynamic "statement" {
+    for_each = each.key == "dev" ? [true] : []
+
+    content {
+      sid    = "ResetProductEditorCredentials"
+      effect = "Allow"
+      resources = [
+        "arn:aws:ssm:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:parameter/terrahorse/dev/ec2/SALEOR_EDITOR_APP_ID",
+        "arn:aws:ssm:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:parameter/terrahorse/dev/ec2/SALEOR_EDITOR_APP_TOKEN"
+      ]
+      actions = ["ssm:DeleteParameters"]
+    }
+  }
+
+  dynamic "statement" {
     for_each = length(local.database_owned_runtime_parameter_arns[each.key]) == 0 ? [] : [local.database_owned_runtime_parameter_arns[each.key]]
 
     content {

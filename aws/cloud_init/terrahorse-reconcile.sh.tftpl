@@ -139,7 +139,7 @@ reconcile_once() {
   fi
   if [ -f "$${candidate}/.rejected" ]; then
     write_status failed "$${release_image}" "$${deployment_id}" "Release was previously rejected"
-    return 1
+    return 0
   fi
 
   ensure_ecr_login
@@ -318,7 +318,7 @@ reconcile_once() {
       mkdir -p "$${app_dir}"
       touch "$${candidate}/.rejected"
       write_status failed "$${release_image}" "$${deployment_id}" "Candidate failed and no previous release was available"
-      return 1
+      return 0
     fi
     touch "$${candidate}/.rejected"
     write_status rolled_back "$${release_image}" "$${deployment_id}" "Candidate failed editor retirement, startup, proxy validation, or health check; previous release restored"
