@@ -98,7 +98,8 @@ locals {
           path        = "/usr/local/sbin/terrahorse-reconcile"
           owner       = "root:root"
           permissions = "0755"
-          content = templatefile("${path.module}/cloud_init/terrahorse-reconcile.sh.tftpl", {
+          # Product Editor lifecycle code stays out of production launch-template user data.
+          content = templatefile(environment == "dev" ? "${path.module}/cloud_init/terrahorse-reconcile-product-editor.sh.tftpl" : "${path.module}/cloud_init/terrahorse-reconcile.sh.tftpl", {
             environment           = environment
             dashboard_admin_email = config.dashboard_admin_email
           })
