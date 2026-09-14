@@ -19,7 +19,7 @@ locals {
       NUXT_PUBLIC_PRODUCT_EDITOR_STOREFRONT_URL = "https://dev.terrahorse.lt"
       NUXT_PUBLIC_SALEOR_API_URL                = "https://api-dev.terrahorse.lt/graphql/"
       SALEOR_API_URL                            = "https://api:8443/graphql/"
-      SALEOR_EDITOR_API_URL                     = "https://localhost:8443/graphql/"
+      SALEOR_EDITOR_API_URL                     = "https://api:8443/graphql/"
       SALEOR_CHANNEL                            = "terrahorse-eur"
       SALEOR_STOCK_AVAILABILITY_MODE            = "channel-aggregate"
       SALEOR_STOCK_COUNTRY_CODE                 = "LT"
@@ -37,11 +37,9 @@ locals {
       SALEOR_STOREFRONT_URL                     = "https://dev.terrahorse.lt"
       SALEOR_ALLOWED_HOSTS                      = "localhost,127.0.0.1,api,dev.terrahorse.lt,api-dev.terrahorse.lt"
       SALEOR_ALLOWED_CLIENT_HOSTS               = "localhost,127.0.0.1,dev.terrahorse.lt,api-dev.terrahorse.lt,dashboard-dev.terrahorse.lt,editor-dev.terrahorse.lt"
-      SALEOR_EDITOR_APL_PARAMETER               = "/terrahorse/dev/product-editor/apl"
       OPENAI_PRODUCT_EDITOR_MODEL               = "gpt-6-astra"
       EDITOR_GITHUB_REPOSITORY                  = "ruduo-net/terrahorse-web"
       EDITOR_CODEX_LOGIN                        = "chatgpt-codex-connector"
-      AWS_REGION                                = data.aws_region.current.region
       DEFAULT_FROM_EMAIL                        = "info@terrahorse.lt"
       EMAIL_FROM_NAME                           = "TerraHorse"
       AWS_DEPLOY_ROLE_ARN                       = aws_iam_role.github-actions-deploy["dev"].arn

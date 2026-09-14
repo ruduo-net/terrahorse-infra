@@ -96,10 +96,13 @@ fi
 mkdir -p \
   /opt/terrahorse/data/media \
   /opt/terrahorse/data/postgres \
+  /opt/terrahorse/data/product-editor \
   /opt/terrahorse/data/redis \
   /opt/terrahorse/data/tls
 
 systemctl start docker
+docker network inspect terrahorse-product-editor >/dev/null 2>&1 || \
+  docker network create --driver bridge terrahorse-product-editor >/dev/null
 
 aws_account_id=$(aws sts get-caller-identity \
   --query Account \
@@ -113,6 +116,7 @@ done
 chown -R ec2-user:ec2-user /opt/terrahorse
 chown 70:70 /opt/terrahorse/data/postgres
 chmod 0700 /opt/terrahorse/data/postgres
+chmod 0700 /opt/terrahorse/data/product-editor
 
 install -d -m 0755 /opt/terrahorse/releases
 
