@@ -91,8 +91,59 @@ stop_main_project() {
 }
 
 ensure_product_editor_network() {
-  docker network inspect terrahorse-product-editor >/dev/null 2>&1 ||
+  local network_name network_details driver scope container_ids container_id owner
+  network_name="$(docker network ls --filter name='^terrahorse-product-editor$' --format '{{.Name}}')"
+  if [ -z "$${network_name}" ]; then
     docker network create --driver bridge terrahorse-product-editor >/dev/null
+    return 0
+  fi
+  [ "$${network_name}" = terrahorse-product-editor ] || return 1
+
+  network_details="$(docker network inspect terrahorse-product-editor)"
+  driver="$(jq -er '.[0].Driver' <<< "$${network_details}")"
+  scope="$(jq -er '.[0].Scope' <<< "$${network_details}")"
+  if [ "$${driver}" != bridge ] || [ "$${scope}" != local ]; then
+    echo "The terrahorse-product-editor network must be a local bridge" >&2
+    return 1
+  fi
+
+  container_ids="$(jq -r '.[0].Containers // {} | keys[]' <<< "$${network_details}")"
+  while IFS= read -r container_id; do
+    [ -n "$${container_id}" ] || continue
+    owner="$(docker inspect --format '{{ index .Config.Labels "com.docker.compose.project" }}:{{ index .Config.Labels "com.docker.compose.service" }}' "$${container_id}")"
+    case "$${owner}" in
+      terrahorse-ec2:api|terrahorse-product-editor:product-editor) ;;
+      *)
+        echo "Unexpected container attached to terrahorse-product-editor: $${owner}" >&2
+        return 1
+        ;;
+    esac
+  done <<< "$${container_ids}"
+}
+
+append_optional_editor_credentials() {
+  local env_file="$1" parameter_prefix response parameter_count invalid_count name value
+  parameter_prefix="/terrahorse/$${environment}/ec2"
+  response="$(aws ssm get-parameters \
+    --names "$${parameter_prefix}/SALEOR_EDITOR_APP_ID" "$${parameter_prefix}/SALEOR_EDITOR_APP_TOKEN" \
+    --with-decryption \
+    --output json)"
+  parameter_count="$(jq -er '.Parameters | length' <<< "$${response}")"
+  invalid_count="$(jq -er '.InvalidParameters | length' <<< "$${response}")"
+
+  if [ "$${parameter_count}" -eq 0 ] && [ "$${invalid_count}" -eq 2 ]; then
+    printf 'SALEOR_EDITOR_APP_ID=\nSALEOR_EDITOR_APP_TOKEN=\n' >> "$${env_file}"
+    return 0
+  fi
+  if [ "$${parameter_count}" -ne 2 ] || [ "$${invalid_count}" -ne 0 ]; then
+    echo "Saleor editor app ID and token must both exist or both be absent" >&2
+    return 1
+  fi
+
+  for name in SALEOR_EDITOR_APP_ID SALEOR_EDITOR_APP_TOKEN; do
+    value="$(jq -er --arg parameter "$${parameter_prefix}/$${name}" '.Parameters[] | select(.Name == $parameter) | .Value' <<< "$${response}")"
+    printf '%s=%s\n' "$${name}" "$${value}" >> "$${env_file}"
+  done
 }
 
 start_and_verify_active_release() {
@@ -122,7 +173,7 @@ start_and_verify_active_release() {
 }
 
 reconcile_once() {
-  local release_image release_id deployment_id deployment_key candidate compose_file storefront_image app_version editor_available
+  local release_image release_id deployment_id deployment_key candidate compose_file storefront_image app_version editor_available editor_contract
   release_image="$(aws ssm get-parameter --name "$${desired_parameter}" --query Parameter.Value --output text 2>/dev/null || true)"
   [ -n "$${release_image}" ] || return 0
   deployment_id="$(aws ssm get-parameter --name "$${deployment_parameter}" --query Parameter.Value --output text 2>/dev/null || true)"
@@ -134,7 +185,11 @@ reconcile_once() {
   deployment_key="$(printf '%s' "$${deployment_id}" | tr '/:@' '___')"
   candidate="$${release_dir}/$${release_id}--$${deployment_key}"
   if [ -f "$${candidate}/.installed" ]; then
-    write_status succeeded "$${release_image}" "$${deployment_id}" "Release is already active"
+    if start_and_verify_active_release; then
+      write_status succeeded "$${release_image}" "$${deployment_id}" "Release is active"
+    else
+      write_status failed "$${release_image}" "$${deployment_id}" "Active release or Product Editor could not be restored"
+    fi
     return 0
   fi
   if [ -f "$${candidate}/.rejected" ]; then
@@ -153,9 +208,18 @@ reconcile_once() {
   trap 'docker rm -f "$${container_id}" >/dev/null 2>&1 || true' RETURN
   docker cp "$${container_id}:/release/compose.ec2.yml" "$${candidate}.tmp/compose.ec2.yml"
   editor_available=false
-  if docker cp "$${container_id}:/release/compose.product-editor.yml" "$${candidate}.tmp/compose.product-editor.yml" >/dev/null 2>&1; then
-    editor_available=true
-  fi
+  editor_contract="$(docker image inspect --format '{{ index .Config.Labels "lt.terrahorse.release.product-editor-contract" }}' "$${release_image}")"
+  case "$${editor_contract}" in
+    1)
+      docker cp "$${container_id}:/release/compose.product-editor.yml" "$${candidate}.tmp/compose.product-editor.yml"
+      editor_available=true
+      ;;
+    ""|"<no value>") ;;
+    *)
+      echo "Unsupported Product Editor release contract: $${editor_contract}" >&2
+      return 1
+      ;;
+  esac
   docker cp "$${container_id}:/release/release.json" "$${candidate}.tmp/release.json"
   docker cp "$${container_id}:/release/docker/media/nginx.conf" "$${candidate}.tmp/docker/media/nginx.conf"
   docker rm "$${container_id}" >/dev/null
@@ -181,11 +245,7 @@ reconcile_once() {
       aws ssm get-parameter --name "/terrahorse/$${environment}/ec2/$${name}" --with-decryption --query Parameter.Value --output text >> "$${env_file}"
       printf '\n' >> "$${env_file}"
     done
-    for name in SALEOR_EDITOR_APP_ID SALEOR_EDITOR_APP_TOKEN; do
-      printf '%s=' "$${name}" >> "$${env_file}"
-      aws ssm get-parameter --name "/terrahorse/$${environment}/ec2/$${name}" --with-decryption --query Parameter.Value --output text 2>/dev/null >> "$${env_file}" || true
-      printf '\n' >> "$${env_file}"
-    done
+    append_optional_editor_credentials "$${env_file}"
   fi
   printf "RSA_PRIVATE_KEY='" >> "$${env_file}"
   aws ssm get-parameter --name "/terrahorse/$${environment}/ec2/RSA_PRIVATE_KEY" --with-decryption --query Parameter.Value --output text >> "$${env_file}"
