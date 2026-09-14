@@ -135,6 +135,12 @@ resource "aws_launch_template" "ec2" {
     name = aws_iam_instance_profile.ec2[each.key].name
   }
 
+  metadata_options {
+    http_endpoint               = "enabled"
+    http_tokens                 = "required"
+    http_put_response_hop_limit = 1
+  }
+
   block_device_mappings {
     device_name = "/dev/xvda"
 

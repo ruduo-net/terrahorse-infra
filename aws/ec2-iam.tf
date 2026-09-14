@@ -88,6 +88,22 @@ data "aws_iam_policy_document" "ec2-parameters" {
     }
   }
 
+  dynamic "statement" {
+    for_each = each.key == "dev" ? [each.key] : []
+
+    content {
+      sid    = "ManageProductEditorInstallation"
+      effect = "Allow"
+      actions = [
+        "ssm:PutParameter",
+        "ssm:DeleteParameter",
+      ]
+      resources = [
+        "arn:aws:ssm:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:parameter/terrahorse/${statement.value}/product-editor/apl",
+      ]
+    }
+  }
+
   statement {
     effect    = "Allow"
     actions   = ["kms:Decrypt"]

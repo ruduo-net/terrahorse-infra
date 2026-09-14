@@ -64,7 +64,7 @@ ensure_internal_tls() {
 }
 
 reconcile_once() {
-  local release_image release_id deployment_id deployment_key candidate compose_file storefront_image app_version
+  local release_image release_id deployment_id deployment_key candidate compose_file storefront_image app_version editor_available
   release_image="$(aws ssm get-parameter --name "$${desired_parameter}" --query Parameter.Value --output text 2>/dev/null || true)"
   [ -n "$${release_image}" ] || return 0
   deployment_id="$(aws ssm get-parameter --name "$${deployment_parameter}" --query Parameter.Value --output text 2>/dev/null || true)"
@@ -94,6 +94,10 @@ reconcile_once() {
   container_id="$(docker create "$${release_image}")"
   trap 'docker rm -f "$${container_id}" >/dev/null 2>&1 || true' RETURN
   docker cp "$${container_id}:/release/compose.ec2.yml" "$${candidate}.tmp/compose.ec2.yml"
+  editor_available=false
+  if docker cp "$${container_id}:/release/compose.product-editor.yml" "$${candidate}.tmp/compose.product-editor.yml" >/dev/null 2>&1; then
+    editor_available=true
+  fi
   docker cp "$${container_id}:/release/release.json" "$${candidate}.tmp/release.json"
   docker cp "$${container_id}:/release/docker/media/nginx.conf" "$${candidate}.tmp/docker/media/nginx.conf"
   docker rm "$${container_id}" >/dev/null
@@ -106,13 +110,20 @@ reconcile_once() {
   : > "$${env_file}"
   aws ssm get-parameter --name "/terrahorse/$${environment}/ec2/config" --query Parameter.Value --output text |
     jq -r 'to_entries[] | "\(.key)=\(.value)"' >> "$${env_file}"
-  printf 'STOREFRONT_IMAGE=%s\nAPP_VERSION=%s\nNUXT_PUBLIC_ENVIRONMENT=%s\n' \
-    "$${storefront_image}" "$${app_version}" "$${runtime_environment}" >> "$${env_file}"
+  printf 'STOREFRONT_IMAGE=%s\nPRODUCT_EDITOR_IMAGE=%s\nAPP_VERSION=%s\nNUXT_PUBLIC_ENVIRONMENT=%s\n' \
+    "$${storefront_image}" "$${storefront_image}" "$${app_version}" "$${runtime_environment}" >> "$${env_file}"
   for name in SALEOR_COMMERCE_APP_TOKEN COMMERCE_EVENT_HMAC_KEY MONTONIO_ACCESS_KEY MONTONIO_SECRET_KEY CLOUDFLARED_TUNNEL_TOKEN POSTGRES_PASSWORD SECRET_KEY EMAIL_URL; do
     printf '%s=' "$${name}" >> "$${env_file}"
     aws ssm get-parameter --name "/terrahorse/$${environment}/ec2/$${name}" --with-decryption --query Parameter.Value --output text >> "$${env_file}"
     printf '\n' >> "$${env_file}"
   done
+  if [ "$${environment}" = dev ] && [ "$${editor_available}" = true ]; then
+    for name in OPENAI_API_KEY EDITOR_GITHUB_TOKEN; do
+      printf '%s=' "$${name}" >> "$${env_file}"
+      aws ssm get-parameter --name "/terrahorse/$${environment}/ec2/$${name}" --with-decryption --query Parameter.Value --output text >> "$${env_file}"
+      printf '\n' >> "$${env_file}"
+    done
+  fi
   printf "RSA_PRIVATE_KEY='" >> "$${env_file}"
   aws ssm get-parameter --name "/terrahorse/$${environment}/ec2/RSA_PRIVATE_KEY" --with-decryption --query Parameter.Value --output text >> "$${env_file}"
   printf "'\nCACHE_URL=redis://cache:6379/0\nCELERY_BROKER_URL=redis://cache:6379/1\n" >> "$${env_file}"
@@ -122,6 +133,10 @@ reconcile_once() {
   ensure_ecr_login
   docker compose --env-file "$${env_file}" -f "$${candidate}.tmp/compose.ec2.yml" config >/dev/null
   docker compose --env-file "$${env_file}" -f "$${candidate}.tmp/compose.ec2.yml" pull >/dev/null
+  if [ "$${environment}" = dev ] && [ "$${editor_available}" = true ]; then
+    docker compose --env-file "$${env_file}" -f "$${candidate}.tmp/compose.product-editor.yml" config >/dev/null
+    docker compose --env-file "$${env_file}" -f "$${candidate}.tmp/compose.product-editor.yml" pull >/dev/null
+  fi
   docker compose --env-file "$${env_file}" -f "$${candidate}.tmp/compose.ec2.yml" up -d db cache >/dev/null
   database_ready=false
   for attempt in $(seq 1 30); do
@@ -159,14 +174,25 @@ reconcile_once() {
   if [ -f "$${app_dir}/compose.ec2.yml" ]; then
     cp -a "$${app_dir}" "$${rollback_dir}"
   fi
+  if [ "$${editor_available}" != true ] && [ -f "$${app_dir}/compose.product-editor.yml" ]; then
+    docker compose --env-file "$${app_dir}/.env" -f "$${app_dir}/compose.product-editor.yml" down >/dev/null 2>&1 || true
+  fi
   rm -rf "$${candidate}"
   mv "$${candidate}.tmp" "$${candidate}"
   cp "$${candidate}/compose.ec2.yml" "$${app_dir}/compose.ec2.yml"
+  if [ "$${editor_available}" = true ]; then
+    cp "$${candidate}/compose.product-editor.yml" "$${app_dir}/compose.product-editor.yml"
+  else
+    rm -f "$${app_dir}/compose.product-editor.yml"
+  fi
   cp "$${candidate}/.env" "$${app_dir}/.env"
   install -D -m 0644 "$${candidate}/docker/media/nginx.conf" "$${app_dir}/docker/media/nginx.conf"
   # Compose recreates only changed services; restarting the systemd unit would
   # run its `down` hook and unnecessarily disconnect the Cloudflare tunnel.
   docker compose --env-file "$${app_dir}/.env" -f "$${app_dir}/compose.ec2.yml" up -d --remove-orphans >/dev/null
+  if [ "$${environment}" = dev ] && [ "$${editor_available}" = true ]; then
+    docker compose --env-file "$${app_dir}/.env" -f "$${app_dir}/compose.product-editor.yml" up -d --remove-orphans >/dev/null
+  fi
   proxy_ready=true
   if ! docker compose --env-file "$${app_dir}/.env" -f "$${app_dir}/compose.ec2.yml" exec -T media nginx -t >/dev/null || \
     ! docker compose --env-file "$${app_dir}/.env" -f "$${app_dir}/compose.ec2.yml" exec -T media nginx -s reload >/dev/null; then
@@ -181,7 +207,8 @@ reconcile_once() {
       if curl -fsS http://127.0.0.1:3000/health >/dev/null 2>&1 && \
         curl -ksSf https://127.0.0.1:8443/graphql/ \
           -H 'Content-Type: application/json' \
-          --data '{"query":"{ __typename }"}' >/dev/null 2>&1; then
+          --data '{"query":"{ __typename }"}' >/dev/null 2>&1 && \
+        { [ "$${environment}" != dev ] || [ "$${editor_available}" != true ] || curl -fsS http://127.0.0.1:3100/health >/dev/null 2>&1; }; then
         healthy=true
         break
       fi
@@ -190,10 +217,16 @@ reconcile_once() {
   fi
   if [ "$${healthy}" != true ]; then
     write_status rolled_back "$${release_image}" "$${deployment_id}" "Candidate failed proxy validation or health check; previous release restored"
+    if [ -f "$${app_dir}/compose.product-editor.yml" ]; then
+      docker compose --env-file "$${app_dir}/.env" -f "$${app_dir}/compose.product-editor.yml" down >/dev/null 2>&1 || true
+    fi
     if [ -d "$${rollback_dir}" ]; then
       rm -rf "$${app_dir}"
       mv "$${rollback_dir}" "$${app_dir}"
       docker compose --env-file "$${app_dir}/.env" -f "$${app_dir}/compose.ec2.yml" up -d --remove-orphans >/dev/null || true
+      if [ "$${environment}" = dev ] && [ -f "$${app_dir}/compose.product-editor.yml" ]; then
+        docker compose --env-file "$${app_dir}/.env" -f "$${app_dir}/compose.product-editor.yml" up -d --remove-orphans >/dev/null || true
+      fi
       docker compose --env-file "$${app_dir}/.env" -f "$${app_dir}/compose.ec2.yml" exec -T media nginx -t >/dev/null || true
       docker compose --env-file "$${app_dir}/.env" -f "$${app_dir}/compose.ec2.yml" exec -T media nginx -s reload >/dev/null || true
     else
