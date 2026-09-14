@@ -82,6 +82,29 @@ stop_product_editor_project() {
   [ -z "$${container_ids}" ]
 }
 
+start_and_verify_active_release() {
+  local editor_expected=false attempt
+  docker compose --env-file "$${app_dir}/.env" -f "$${app_dir}/compose.ec2.yml" up -d --remove-orphans >/dev/null || return 1
+  if [ "$${environment}" = dev ] && [ -f "$${app_dir}/compose.product-editor.yml" ]; then
+    editor_expected=true
+    docker compose --env-file "$${app_dir}/.env" -f "$${app_dir}/compose.product-editor.yml" up -d --remove-orphans >/dev/null || return 1
+  fi
+  docker compose --env-file "$${app_dir}/.env" -f "$${app_dir}/compose.ec2.yml" exec -T media nginx -t >/dev/null || return 1
+  docker compose --env-file "$${app_dir}/.env" -f "$${app_dir}/compose.ec2.yml" exec -T media nginx -s reload >/dev/null || return 1
+  systemctl start terrahorse.service || return 1
+  for attempt in $(seq 1 12); do
+    if curl -fsS http://127.0.0.1:3000/health >/dev/null 2>&1 && \
+      curl -ksSf https://127.0.0.1:8443/graphql/ \
+        -H 'Content-Type: application/json' \
+        --data '{"query":"{ __typename }"}' >/dev/null 2>&1 && \
+      { [ "$${editor_expected}" != true ] || curl -fsS http://127.0.0.1:3100/health >/dev/null 2>&1; }; then
+      return 0
+    fi
+    sleep 5
+  done
+  return 1
+}
+
 reconcile_once() {
   local release_image release_id deployment_id deployment_key candidate compose_file storefront_image app_version editor_available
   release_image="$(aws ssm get-parameter --name "$${desired_parameter}" --query Parameter.Value --output text 2>/dev/null || true)"
@@ -257,15 +280,17 @@ reconcile_once() {
     if [ -d "$${rollback_dir}" ]; then
       rm -rf "$${app_dir}"
       mv "$${rollback_dir}" "$${app_dir}"
-      docker compose --env-file "$${app_dir}/.env" -f "$${app_dir}/compose.ec2.yml" up -d --remove-orphans >/dev/null || true
-      if [ "$${environment}" = dev ] && [ -f "$${app_dir}/compose.product-editor.yml" ]; then
-        docker compose --env-file "$${app_dir}/.env" -f "$${app_dir}/compose.product-editor.yml" up -d --remove-orphans >/dev/null || true
-      fi
-      docker compose --env-file "$${app_dir}/.env" -f "$${app_dir}/compose.ec2.yml" exec -T media nginx -t >/dev/null || true
-      docker compose --env-file "$${app_dir}/.env" -f "$${app_dir}/compose.ec2.yml" exec -T media nginx -s reload >/dev/null || true
+      until start_and_verify_active_release; do
+        docker compose --env-file "$${app_dir}/.env" -f "$${app_dir}/compose.ec2.yml" stop cloudflared >/dev/null 2>&1 || true
+        write_status deploying "$${release_image}" "$${deployment_id}" "Rollback is waiting for the previous release to become healthy"
+        sleep 5
+      done
     else
       rm -rf "$${app_dir}"
       mkdir -p "$${app_dir}"
+      touch "$${candidate}/.rejected"
+      write_status failed "$${release_image}" "$${deployment_id}" "Candidate failed and no previous release was available"
+      return 1
     fi
     touch "$${candidate}/.rejected"
     write_status rolled_back "$${release_image}" "$${deployment_id}" "Candidate failed editor retirement, startup, proxy validation, or health check; previous release restored"
