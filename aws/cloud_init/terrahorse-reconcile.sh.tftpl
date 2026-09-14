@@ -63,6 +63,25 @@ ensure_internal_tls() {
   mv -f "$${temporary_certificate}" "$${certificate_path}"
 }
 
+stop_product_editor_project() {
+  local env_file="$1" compose_file="$2" attempt container_ids container_id
+  for attempt in $(seq 1 3); do
+    docker compose --env-file "$${env_file}" -f "$${compose_file}" down --remove-orphans >/dev/null 2>&1 || true
+    if ! container_ids="$(docker ps -aq --filter label=com.docker.compose.project=terrahorse-product-editor)"; then
+      sleep 2
+      continue
+    fi
+    [ -n "$${container_ids}" ] || return 0
+    while IFS= read -r container_id; do
+      [ -n "$${container_id}" ] || continue
+      docker rm -f "$${container_id}" >/dev/null 2>&1 || true
+    done <<< "$${container_ids}"
+    sleep 2
+  done
+  container_ids="$(docker ps -aq --filter label=com.docker.compose.project=terrahorse-product-editor)" || return 1
+  [ -z "$${container_ids}" ]
+}
+
 reconcile_once() {
   local release_image release_id deployment_id deployment_key candidate compose_file storefront_image app_version editor_available
   release_image="$(aws ssm get-parameter --name "$${desired_parameter}" --query Parameter.Value --output text 2>/dev/null || true)"
@@ -176,7 +195,7 @@ reconcile_once() {
   fi
   candidate_started=true
   if [ "$${editor_available}" != true ] && [ -f "$${app_dir}/compose.product-editor.yml" ]; then
-    if ! docker compose --env-file "$${app_dir}/.env" -f "$${app_dir}/compose.product-editor.yml" down >/dev/null 2>&1; then
+    if ! stop_product_editor_project "$${app_dir}/.env" "$${app_dir}/compose.product-editor.yml"; then
       candidate_started=false
     fi
   fi
@@ -227,9 +246,13 @@ reconcile_once() {
     done
   fi
   if [ "$${healthy}" != true ]; then
-    write_status rolled_back "$${release_image}" "$${deployment_id}" "Candidate failed editor retirement, startup, proxy validation, or health check; previous release restored"
+    write_status deploying "$${release_image}" "$${deployment_id}" "Candidate failed; removing its Product Editor before rollback"
     if [ -f "$${app_dir}/compose.product-editor.yml" ]; then
-      docker compose --env-file "$${app_dir}/.env" -f "$${app_dir}/compose.product-editor.yml" down >/dev/null 2>&1 || true
+      until stop_product_editor_project "$${app_dir}/.env" "$${app_dir}/compose.product-editor.yml"; do
+        docker compose --env-file "$${app_dir}/.env" -f "$${app_dir}/compose.ec2.yml" stop cloudflared >/dev/null 2>&1 || true
+        write_status deploying "$${release_image}" "$${deployment_id}" "Rollback is waiting for Product Editor teardown"
+        sleep 5
+      done
     fi
     if [ -d "$${rollback_dir}" ]; then
       rm -rf "$${app_dir}"
@@ -245,6 +268,7 @@ reconcile_once() {
       mkdir -p "$${app_dir}"
     fi
     touch "$${candidate}/.rejected"
+    write_status rolled_back "$${release_image}" "$${deployment_id}" "Candidate failed editor retirement, startup, proxy validation, or health check; previous release restored"
     return 0
   fi
   rm -rf "$${rollback_dir}"
