@@ -189,14 +189,21 @@ reconcile_once() {
   install -D -m 0644 "$${candidate}/docker/media/nginx.conf" "$${app_dir}/docker/media/nginx.conf"
   # Compose recreates only changed services; restarting the systemd unit would
   # run its `down` hook and unnecessarily disconnect the Cloudflare tunnel.
-  docker compose --env-file "$${app_dir}/.env" -f "$${app_dir}/compose.ec2.yml" up -d --remove-orphans >/dev/null
-  if [ "$${environment}" = dev ] && [ "$${editor_available}" = true ]; then
-    docker compose --env-file "$${app_dir}/.env" -f "$${app_dir}/compose.product-editor.yml" up -d --remove-orphans >/dev/null
+  candidate_started=true
+  if ! docker compose --env-file "$${app_dir}/.env" -f "$${app_dir}/compose.ec2.yml" up -d --remove-orphans >/dev/null; then
+    candidate_started=false
   fi
-  proxy_ready=true
-  if ! docker compose --env-file "$${app_dir}/.env" -f "$${app_dir}/compose.ec2.yml" exec -T media nginx -t >/dev/null || \
-    ! docker compose --env-file "$${app_dir}/.env" -f "$${app_dir}/compose.ec2.yml" exec -T media nginx -s reload >/dev/null; then
-    proxy_ready=false
+  if [ "$${candidate_started}" = true ] && [ "$${environment}" = dev ] && [ "$${editor_available}" = true ]; then
+    if ! docker compose --env-file "$${app_dir}/.env" -f "$${app_dir}/compose.product-editor.yml" up -d --remove-orphans >/dev/null; then
+      candidate_started=false
+    fi
+  fi
+  proxy_ready="$${candidate_started}"
+  if [ "$${proxy_ready}" = true ]; then
+    if ! docker compose --env-file "$${app_dir}/.env" -f "$${app_dir}/compose.ec2.yml" exec -T media nginx -t >/dev/null || \
+      ! docker compose --env-file "$${app_dir}/.env" -f "$${app_dir}/compose.ec2.yml" exec -T media nginx -s reload >/dev/null; then
+      proxy_ready=false
+    fi
   fi
   if [ "$${proxy_ready}" = true ]; then
     systemctl start terrahorse.service
@@ -216,7 +223,7 @@ reconcile_once() {
     done
   fi
   if [ "$${healthy}" != true ]; then
-    write_status rolled_back "$${release_image}" "$${deployment_id}" "Candidate failed proxy validation or health check; previous release restored"
+    write_status rolled_back "$${release_image}" "$${deployment_id}" "Candidate failed startup, proxy validation, or health check; previous release restored"
     if [ -f "$${app_dir}/compose.product-editor.yml" ]; then
       docker compose --env-file "$${app_dir}/.env" -f "$${app_dir}/compose.product-editor.yml" down >/dev/null 2>&1 || true
     fi
