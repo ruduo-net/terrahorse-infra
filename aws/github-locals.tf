@@ -39,8 +39,8 @@ locals {
       SALEOR_ALLOWED_CLIENT_HOSTS               = "localhost,127.0.0.1,dev.terrahorse.lt,api-dev.terrahorse.lt,dashboard-dev.terrahorse.lt,editor-dev.terrahorse.lt"
       SALEOR_EDITOR_APL_PARAMETER               = "/terrahorse/dev/product-editor/apl"
       OPENAI_PRODUCT_EDITOR_MODEL               = "gpt-6-astra"
-      GITHUB_EDITOR_REPOSITORY                  = "ruduo-net/terrahorse-web"
-      GITHUB_EDITOR_CODEX_LOGIN                 = "chatgpt-codex-connector"
+      EDITOR_GITHUB_REPOSITORY                  = "ruduo-net/terrahorse-web"
+      EDITOR_CODEX_LOGIN                        = "chatgpt-codex-connector"
       AWS_REGION                                = data.aws_region.current.region
       DEFAULT_FROM_EMAIL                        = "info@terrahorse.lt"
       EMAIL_FROM_NAME                           = "TerraHorse"
