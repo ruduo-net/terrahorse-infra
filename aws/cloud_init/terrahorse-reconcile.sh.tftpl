@@ -82,11 +82,17 @@ stop_product_editor_project() {
   [ -z "$${container_ids}" ]
 }
 
+ensure_product_editor_network() {
+  docker network inspect terrahorse-product-editor >/dev/null 2>&1 ||
+    docker network create --driver bridge terrahorse-product-editor >/dev/null
+}
+
 start_and_verify_active_release() {
   local editor_expected=false attempt
   docker compose --env-file "$${app_dir}/.env" -f "$${app_dir}/compose.ec2.yml" up -d --remove-orphans >/dev/null || return 1
   if [ "$${environment}" = dev ] && [ -f "$${app_dir}/compose.product-editor.yml" ]; then
     editor_expected=true
+    ensure_product_editor_network || return 1
     docker compose --env-file "$${app_dir}/.env" -f "$${app_dir}/compose.product-editor.yml" up -d --remove-orphans >/dev/null || return 1
   fi
   docker compose --env-file "$${app_dir}/.env" -f "$${app_dir}/compose.ec2.yml" exec -T media nginx -t >/dev/null || return 1
@@ -165,6 +171,11 @@ reconcile_once() {
       aws ssm get-parameter --name "/terrahorse/$${environment}/ec2/$${name}" --with-decryption --query Parameter.Value --output text >> "$${env_file}"
       printf '\n' >> "$${env_file}"
     done
+    for name in SALEOR_EDITOR_APP_ID SALEOR_EDITOR_APP_TOKEN; do
+      printf '%s=' "$${name}" >> "$${env_file}"
+      aws ssm get-parameter --name "/terrahorse/$${environment}/ec2/$${name}" --with-decryption --query Parameter.Value --output text 2>/dev/null >> "$${env_file}" || true
+      printf '\n' >> "$${env_file}"
+    done
   fi
   printf "RSA_PRIVATE_KEY='" >> "$${env_file}"
   aws ssm get-parameter --name "/terrahorse/$${environment}/ec2/RSA_PRIVATE_KEY" --with-decryption --query Parameter.Value --output text >> "$${env_file}"
@@ -240,7 +251,7 @@ reconcile_once() {
     fi
   fi
   if [ "$${candidate_started}" = true ] && [ "$${environment}" = dev ] && [ "$${editor_available}" = true ]; then
-    if ! docker compose --env-file "$${app_dir}/.env" -f "$${app_dir}/compose.product-editor.yml" up -d --remove-orphans >/dev/null; then
+    if ! ensure_product_editor_network || ! docker compose --env-file "$${app_dir}/.env" -f "$${app_dir}/compose.product-editor.yml" up -d --remove-orphans >/dev/null; then
       candidate_started=false
     fi
   fi
