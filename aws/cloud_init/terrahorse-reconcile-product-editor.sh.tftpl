@@ -1,0 +1,420 @@
+#!/bin/bash
+set -euo pipefail
+
+environment="${environment}"
+dashboard_admin_email="${dashboard_admin_email}"
+metadata_token="$(curl -fsS -X PUT -H 'X-aws-ec2-metadata-token-ttl-seconds: 21600' http://169.254.169.254/latest/api/token)"
+instance_id="$(curl -fsS -H "X-aws-ec2-metadata-token: $${metadata_token}" http://169.254.169.254/latest/meta-data/instance-id)"
+registry="$(aws sts get-caller-identity --query Account --output text).dkr.ecr.$${AWS_REGION}.amazonaws.com"
+desired_parameter="/terrahorse/$${environment}/ec2/deploy/desired"
+deployment_parameter="/terrahorse/$${environment}/ec2/deploy/deployment"
+status_parameter="/terrahorse/$${environment}/ec2/deploy/status"
+app_dir=/opt/terrahorse/app
+release_dir=/opt/terrahorse/releases
+tls_dir=/opt/terrahorse/data/tls
+reconcile_lock=/run/terrahorse-reconcile.lock
+case "$${environment}" in
+  dev) runtime_environment=preview ;;
+  prod) runtime_environment=production ;;
+  *) runtime_environment="$${environment}" ;;
+esac
+
+write_status() {
+  local state="$1" release="$2" deployment_id="$3" message="$4"
+  local payload
+  payload="$(jq -cn --arg state "$${state}" --arg release "$${release}" --arg deployment_id "$${deployment_id}" --arg instance_id "$${instance_id}" --arg message "$${message}" \
+    '{state:$state,release:$release,deployment_id:$deployment_id,instance_id:$instance_id,message:$message,timestamp:(now|todateiso8601)}')"
+  aws ssm put-parameter --name "$${status_parameter}" --type String --overwrite --value "$${payload}" >/dev/null || true
+}
+
+ensure_ecr_login() {
+  aws ecr get-login-password |
+    docker login --username AWS --password-stdin "$${registry}" >/dev/null
+}
+
+ensure_internal_tls() {
+  local certificate_path="$${tls_dir}/api.crt"
+  local key_path="$${tls_dir}/api.key"
+  local temporary_certificate="$${certificate_path}.tmp"
+  local temporary_key="$${key_path}.tmp"
+
+  install -d -m 0700 "$${tls_dir}"
+  if [ -e "$${certificate_path}" ] || [ -e "$${key_path}" ]; then
+    [ -f "$${certificate_path}" ] && [ -f "$${key_path}" ] || {
+      echo "Internal TLS certificate and key must both be regular files" >&2
+      return 1
+    }
+    openssl x509 -in "$${certificate_path}" -noout >/dev/null 2>&1 || {
+      echo "Internal TLS certificate is invalid" >&2
+      return 1
+    }
+    return 0
+  fi
+  rm -f "$${temporary_certificate}" "$${temporary_key}"
+  umask 077
+  openssl req -x509 -newkey rsa:2048 -sha256 -nodes -days 3650 \
+    -keyout "$${temporary_key}" \
+    -out "$${temporary_certificate}" \
+    -subj '/CN=api' \
+    -addext 'subjectAltName=DNS:api,DNS:localhost,IP:127.0.0.1'
+  chmod 0600 "$${temporary_key}"
+  chmod 0644 "$${temporary_certificate}"
+  mv -f "$${temporary_key}" "$${key_path}"
+  mv -f "$${temporary_certificate}" "$${certificate_path}"
+}
+
+stop_compose_project() {
+  local env_file="$1" compose_file="$2" project_name="$3" attempt container_ids container_id
+  for attempt in $(seq 1 3); do
+    docker compose --env-file "$${env_file}" -f "$${compose_file}" down --remove-orphans >/dev/null 2>&1 || true
+    if ! container_ids="$(docker ps -aq --filter label=com.docker.compose.project="$${project_name}")"; then
+      sleep 2
+      continue
+    fi
+    [ -n "$${container_ids}" ] || return 0
+    while IFS= read -r container_id; do
+      [ -n "$${container_id}" ] || continue
+      docker rm -f "$${container_id}" >/dev/null 2>&1 || true
+    done <<< "$${container_ids}"
+    sleep 2
+  done
+  container_ids="$(docker ps -aq --filter label=com.docker.compose.project="$${project_name}")" || return 1
+  [ -z "$${container_ids}" ]
+}
+
+stop_product_editor_project() {
+  stop_compose_project "$1" "$2" terrahorse-product-editor
+}
+
+stop_main_project() {
+  stop_compose_project "$1" "$2" terrahorse-ec2
+}
+
+ensure_product_editor_network() {
+  local network_name network_details driver scope container_ids container_id owner
+  network_name="$(docker network ls --filter name='^terrahorse-product-editor$' --format '{{.Name}}')"
+  if [ -z "$${network_name}" ]; then
+    docker network create --driver bridge terrahorse-product-editor >/dev/null
+    return 0
+  fi
+  [ "$${network_name}" = terrahorse-product-editor ] || return 1
+
+  network_details="$(docker network inspect terrahorse-product-editor)"
+  driver="$(jq -er '.[0].Driver' <<< "$${network_details}")"
+  scope="$(jq -er '.[0].Scope' <<< "$${network_details}")"
+  if [ "$${driver}" != bridge ] || [ "$${scope}" != local ]; then
+    echo "The terrahorse-product-editor network must be a local bridge" >&2
+    return 1
+  fi
+
+  container_ids="$(jq -r '.[0].Containers // {} | keys[]' <<< "$${network_details}")"
+  while IFS= read -r container_id; do
+    [ -n "$${container_id}" ] || continue
+    owner="$(docker inspect --format '{{ index .Config.Labels "com.docker.compose.project" }}:{{ index .Config.Labels "com.docker.compose.service" }}' "$${container_id}")"
+    case "$${owner}" in
+      terrahorse-ec2:api|terrahorse-product-editor:product-editor) ;;
+      *)
+        echo "Unexpected container attached to terrahorse-product-editor: $${owner}" >&2
+        return 1
+        ;;
+    esac
+  done <<< "$${container_ids}"
+}
+
+append_optional_editor_credentials() {
+  local env_file="$1" parameter_prefix response parameter_count invalid_count name value
+  parameter_prefix="/terrahorse/$${environment}/ec2"
+  response="$(aws ssm get-parameters \
+    --names "$${parameter_prefix}/SALEOR_EDITOR_APP_ID" "$${parameter_prefix}/SALEOR_EDITOR_APP_TOKEN" \
+    --with-decryption \
+    --output json)"
+  parameter_count="$(jq -er '.Parameters | length' <<< "$${response}")"
+  invalid_count="$(jq -er '.InvalidParameters | length' <<< "$${response}")"
+
+  if [ "$${parameter_count}" -eq 0 ] && [ "$${invalid_count}" -eq 2 ]; then
+    printf 'SALEOR_EDITOR_APP_ID=\nSALEOR_EDITOR_APP_TOKEN=\n' >> "$${env_file}"
+    return 0
+  fi
+  if [ "$${parameter_count}" -ne 2 ] || [ "$${invalid_count}" -ne 0 ]; then
+    echo "Saleor editor app ID and token must both exist or both be absent" >&2
+    return 1
+  fi
+
+  for name in SALEOR_EDITOR_APP_ID SALEOR_EDITOR_APP_TOKEN; do
+    value="$(jq -er --arg parameter "$${parameter_prefix}/$${name}" '.Parameters[] | select(.Name == $parameter) | .Value' <<< "$${response}")"
+    printf '%s=%s\n' "$${name}" "$${value}" >> "$${env_file}"
+  done
+}
+
+start_and_verify_active_release() {
+  local editor_expected=false attempt
+  if [ "$${environment}" = dev ] && [ -f "$${app_dir}/compose.product-editor.yml" ]; then
+    editor_expected=true
+    ensure_product_editor_network || return 1
+  fi
+  docker compose --env-file "$${app_dir}/.env" -f "$${app_dir}/compose.ec2.yml" up -d --remove-orphans >/dev/null || return 1
+  if [ "$${editor_expected}" = true ]; then
+    docker compose --env-file "$${app_dir}/.env" -f "$${app_dir}/compose.product-editor.yml" up -d --remove-orphans >/dev/null || return 1
+  fi
+  docker compose --env-file "$${app_dir}/.env" -f "$${app_dir}/compose.ec2.yml" exec -T media nginx -t >/dev/null || return 1
+  docker compose --env-file "$${app_dir}/.env" -f "$${app_dir}/compose.ec2.yml" exec -T media nginx -s reload >/dev/null || return 1
+  systemctl start terrahorse.service || return 1
+  for attempt in $(seq 1 12); do
+    if curl -fsS http://127.0.0.1:3000/health >/dev/null 2>&1 && \
+      curl -ksSf https://127.0.0.1:8443/graphql/ \
+        -H 'Content-Type: application/json' \
+        --data '{"query":"{ __typename }"}' >/dev/null 2>&1 && \
+      { [ "$${editor_expected}" != true ] || curl -fsS http://127.0.0.1:3100/health >/dev/null 2>&1; }; then
+      return 0
+    fi
+    sleep 5
+  done
+  return 1
+}
+
+reconcile_once() {
+  local release_image release_id deployment_id deployment_key candidate compose_file storefront_image app_version editor_available editor_contract
+  release_image="$(aws ssm get-parameter --name "$${desired_parameter}" --query Parameter.Value --output text 2>/dev/null || true)"
+  [ -n "$${release_image}" ] || return 0
+  deployment_id="$(aws ssm get-parameter --name "$${deployment_parameter}" --query Parameter.Value --output text 2>/dev/null || true)"
+  [ -n "$${deployment_id}" ] || return 1
+
+  write_status deploying "$${release_image}" "$${deployment_id}" "Preparing release"
+
+  release_id="$(printf '%s' "$${release_image}" | tr '/:@' '___')"
+  deployment_key="$(printf '%s' "$${deployment_id}" | tr '/:@' '___')"
+  candidate="$${release_dir}/$${release_id}--$${deployment_key}"
+  if [ -f "$${candidate}/.installed" ]; then
+    if start_and_verify_active_release; then
+      write_status succeeded "$${release_image}" "$${deployment_id}" "Release is active"
+    else
+      write_status failed "$${release_image}" "$${deployment_id}" "Active release or Product Editor could not be restored"
+    fi
+    return 0
+  fi
+  if [ -f "$${candidate}/.rejected" ]; then
+    write_status failed "$${release_image}" "$${deployment_id}" "Release was previously rejected"
+    return 0
+  fi
+
+  ensure_ecr_login
+  if ! docker pull "$${release_image}" >/dev/null; then
+    ensure_ecr_login
+    docker pull "$${release_image}" >/dev/null
+  fi
+  rm -rf "$${candidate}.tmp"
+  install -d "$${candidate}.tmp/docker/media"
+  container_id="$(docker create "$${release_image}")"
+  trap 'docker rm -f "$${container_id}" >/dev/null 2>&1 || true' RETURN
+  docker cp "$${container_id}:/release/compose.ec2.yml" "$${candidate}.tmp/compose.ec2.yml"
+  editor_available=false
+  editor_contract="$(docker image inspect --format '{{ index .Config.Labels "lt.terrahorse.release.product-editor-contract" }}' "$${release_image}")"
+  case "$${editor_contract}" in
+    1)
+      docker cp "$${container_id}:/release/compose.product-editor.yml" "$${candidate}.tmp/compose.product-editor.yml"
+      editor_available=true
+      ;;
+    ""|"<no value>") ;;
+    *)
+      echo "Unsupported Product Editor release contract: $${editor_contract}" >&2
+      return 1
+      ;;
+  esac
+  docker cp "$${container_id}:/release/release.json" "$${candidate}.tmp/release.json"
+  docker cp "$${container_id}:/release/docker/media/nginx.conf" "$${candidate}.tmp/docker/media/nginx.conf"
+  docker rm "$${container_id}" >/dev/null
+  trap - RETURN
+  storefront_image="$(jq -er '.storefront_image' "$${candidate}.tmp/release.json")"
+  app_version="$(jq -er '.release' "$${candidate}.tmp/release.json")"
+
+  env_file="$${candidate}.tmp/.env"
+  umask 077
+  : > "$${env_file}"
+  aws ssm get-parameter --name "/terrahorse/$${environment}/ec2/config" --query Parameter.Value --output text |
+    jq -r 'to_entries[] | "\(.key)=\(.value)"' >> "$${env_file}"
+  printf 'STOREFRONT_IMAGE=%s\nPRODUCT_EDITOR_IMAGE=%s\nAPP_VERSION=%s\nNUXT_PUBLIC_ENVIRONMENT=%s\n' \
+    "$${storefront_image}" "$${storefront_image}" "$${app_version}" "$${runtime_environment}" >> "$${env_file}"
+  for name in SALEOR_COMMERCE_APP_TOKEN COMMERCE_EVENT_HMAC_KEY MONTONIO_ACCESS_KEY MONTONIO_SECRET_KEY CLOUDFLARED_TUNNEL_TOKEN POSTGRES_PASSWORD SECRET_KEY EMAIL_URL; do
+    printf '%s=' "$${name}" >> "$${env_file}"
+    aws ssm get-parameter --name "/terrahorse/$${environment}/ec2/$${name}" --with-decryption --query Parameter.Value --output text >> "$${env_file}"
+    printf '\n' >> "$${env_file}"
+  done
+  if [ "$${environment}" = dev ] && [ "$${editor_available}" = true ]; then
+    for name in OPENAI_API_KEY EDITOR_GITHUB_TOKEN; do
+      printf '%s=' "$${name}" >> "$${env_file}"
+      aws ssm get-parameter --name "/terrahorse/$${environment}/ec2/$${name}" --with-decryption --query Parameter.Value --output text >> "$${env_file}"
+      printf '\n' >> "$${env_file}"
+    done
+    append_optional_editor_credentials "$${env_file}"
+  fi
+  printf "RSA_PRIVATE_KEY='" >> "$${env_file}"
+  aws ssm get-parameter --name "/terrahorse/$${environment}/ec2/RSA_PRIVATE_KEY" --with-decryption --query Parameter.Value --output text >> "$${env_file}"
+  printf "'\nCACHE_URL=redis://cache:6379/0\nCELERY_BROKER_URL=redis://cache:6379/1\n" >> "$${env_file}"
+  chmod 0600 "$${env_file}"
+  ensure_internal_tls
+
+  ensure_ecr_login
+  if [ "$${environment}" = dev ] && [ "$${editor_available}" = true ]; then
+    ensure_product_editor_network
+  fi
+  docker compose --env-file "$${env_file}" -f "$${candidate}.tmp/compose.ec2.yml" config >/dev/null
+  docker compose --env-file "$${env_file}" -f "$${candidate}.tmp/compose.ec2.yml" pull >/dev/null
+  if [ "$${environment}" = dev ] && [ "$${editor_available}" = true ]; then
+    docker compose --env-file "$${env_file}" -f "$${candidate}.tmp/compose.product-editor.yml" config >/dev/null
+    docker compose --env-file "$${env_file}" -f "$${candidate}.tmp/compose.product-editor.yml" pull >/dev/null
+  fi
+  docker compose --env-file "$${env_file}" -f "$${candidate}.tmp/compose.ec2.yml" up -d db cache >/dev/null
+  database_ready=false
+  for attempt in $(seq 1 30); do
+    if docker compose --env-file "$${env_file}" -f "$${candidate}.tmp/compose.ec2.yml" exec -T db pg_isready -U saleor -d saleor >/dev/null 2>&1; then
+      database_ready=true
+      break
+    fi
+    sleep 2
+  done
+  [ "$${database_ready}" = true ]
+  docker compose --env-file "$${env_file}" -f "$${candidate}.tmp/compose.ec2.yml" run --rm api python3 manage.py migrate --noinput >/dev/null
+
+  dashboard_admin_state="$(
+    printf '%s\n' "SELECT concat_ws('|', is_staff::text, is_superuser::text, is_active::text) FROM account_user WHERE email = :'admin_email';" |
+      docker compose --env-file "$${env_file}" -f "$${candidate}.tmp/compose.ec2.yml" exec -T db \
+      psql -U saleor -d saleor --tuples-only --no-align \
+      --set=admin_email="$${dashboard_admin_email}"
+  )"
+  case "$${dashboard_admin_state}" in
+    "")
+      docker compose --env-file "$${env_file}" -f "$${candidate}.tmp/compose.ec2.yml" run --rm \
+        -e TERRAHORSE_DASHBOARD_ADMIN_EMAIL="$${dashboard_admin_email}" api \
+        python3 manage.py shell -c \
+        "import os; from django.contrib.auth import get_user_model; get_user_model().objects.create_superuser(email=os.environ['TERRAHORSE_DASHBOARD_ADMIN_EMAIL'], password=None); os._exit(0)"
+      ;;
+    true\|true\|true) ;;
+    *)
+      echo "Configured Dashboard administrator exists without active superuser privileges: $${dashboard_admin_email}" >&2
+      return 1
+      ;;
+  esac
+
+  rollback_dir="$${app_dir}.rollback"
+  rm -rf "$${rollback_dir}"
+  if [ -f "$${app_dir}/compose.ec2.yml" ]; then
+    cp -a "$${app_dir}" "$${rollback_dir}"
+  fi
+  candidate_started=true
+  if [ "$${editor_available}" != true ] && [ -f "$${app_dir}/compose.product-editor.yml" ]; then
+    if ! stop_product_editor_project "$${app_dir}/.env" "$${app_dir}/compose.product-editor.yml"; then
+      candidate_started=false
+    fi
+  fi
+  rm -rf "$${candidate}"
+  mv "$${candidate}.tmp" "$${candidate}"
+  cp "$${candidate}/compose.ec2.yml" "$${app_dir}/compose.ec2.yml"
+  if [ "$${editor_available}" = true ]; then
+    cp "$${candidate}/compose.product-editor.yml" "$${app_dir}/compose.product-editor.yml"
+  else
+    rm -f "$${app_dir}/compose.product-editor.yml"
+  fi
+  cp "$${candidate}/.env" "$${app_dir}/.env"
+  install -D -m 0644 "$${candidate}/docker/media/nginx.conf" "$${app_dir}/docker/media/nginx.conf"
+  # Compose recreates only changed services; restarting the systemd unit would
+  # run its `down` hook and unnecessarily disconnect the Cloudflare tunnel.
+  if [ "$${candidate_started}" = true ]; then
+    if ! docker compose --env-file "$${app_dir}/.env" -f "$${app_dir}/compose.ec2.yml" up -d --remove-orphans >/dev/null; then
+      candidate_started=false
+    fi
+  fi
+  if [ "$${candidate_started}" = true ] && [ "$${environment}" = dev ] && [ "$${editor_available}" = true ]; then
+    if ! ensure_product_editor_network || ! docker compose --env-file "$${app_dir}/.env" -f "$${app_dir}/compose.product-editor.yml" up -d --remove-orphans >/dev/null; then
+      candidate_started=false
+    fi
+  fi
+  proxy_ready="$${candidate_started}"
+  if [ "$${proxy_ready}" = true ]; then
+    if ! docker compose --env-file "$${app_dir}/.env" -f "$${app_dir}/compose.ec2.yml" exec -T media nginx -t >/dev/null || \
+      ! docker compose --env-file "$${app_dir}/.env" -f "$${app_dir}/compose.ec2.yml" exec -T media nginx -s reload >/dev/null; then
+      proxy_ready=false
+    fi
+  fi
+  if [ "$${proxy_ready}" = true ]; then
+    systemctl start terrahorse.service
+  fi
+  healthy=false
+  if [ "$${proxy_ready}" = true ]; then
+    for attempt in $(seq 1 12); do
+      if curl -fsS http://127.0.0.1:3000/health >/dev/null 2>&1 && \
+        curl -ksSf https://127.0.0.1:8443/graphql/ \
+          -H 'Content-Type: application/json' \
+          --data '{"query":"{ __typename }"}' >/dev/null 2>&1 && \
+        { [ "$${environment}" != dev ] || [ "$${editor_available}" != true ] || curl -fsS http://127.0.0.1:3100/health >/dev/null 2>&1; }; then
+        healthy=true
+        break
+      fi
+      sleep 5
+    done
+  fi
+  if [ "$${healthy}" != true ]; then
+    write_status deploying "$${release_image}" "$${deployment_id}" "Candidate failed; removing its Product Editor before rollback"
+    if [ -f "$${app_dir}/compose.product-editor.yml" ]; then
+      until stop_product_editor_project "$${app_dir}/.env" "$${app_dir}/compose.product-editor.yml"; do
+        docker compose --env-file "$${app_dir}/.env" -f "$${app_dir}/compose.ec2.yml" stop cloudflared >/dev/null 2>&1 || true
+        write_status deploying "$${release_image}" "$${deployment_id}" "Rollback is waiting for Product Editor teardown"
+        sleep 5
+      done
+    fi
+    if [ -d "$${rollback_dir}" ]; then
+      rm -rf "$${app_dir}"
+      mv "$${rollback_dir}" "$${app_dir}"
+      until start_and_verify_active_release; do
+        docker compose --env-file "$${app_dir}/.env" -f "$${app_dir}/compose.ec2.yml" stop cloudflared >/dev/null 2>&1 || true
+        write_status deploying "$${release_image}" "$${deployment_id}" "Rollback is waiting for the previous release to become healthy"
+        sleep 5
+      done
+    else
+      until stop_main_project "$${app_dir}/.env" "$${app_dir}/compose.ec2.yml"; do
+        write_status deploying "$${release_image}" "$${deployment_id}" "Failure cleanup is waiting for the candidate stack to stop"
+        sleep 5
+      done
+      rm -rf "$${app_dir}"
+      mkdir -p "$${app_dir}"
+      touch "$${candidate}/.rejected"
+      write_status failed "$${release_image}" "$${deployment_id}" "Candidate failed and no previous release was available"
+      return 0
+    fi
+    touch "$${candidate}/.rejected"
+    write_status rolled_back "$${release_image}" "$${deployment_id}" "Candidate failed editor retirement, startup, proxy validation, or health check; previous release restored"
+    return 0
+  fi
+  rm -rf "$${rollback_dir}"
+  touch "$${candidate}/.installed"
+  write_status succeeded "$${release_image}" "$${deployment_id}" "Release is active"
+}
+
+reconcile_once_locked() {
+  (
+    flock -n 9 || return 0
+    reconcile_once
+  ) 9>"$${reconcile_lock}"
+}
+
+if [ "$${1:-}" = --once ]; then
+  reconcile_once_locked
+  exit $?
+fi
+
+reconcile_requested=false
+trap 'reconcile_requested=true' USR1
+while true; do
+  reconcile_requested=false
+  if /usr/local/sbin/terrahorse-reconcile --once; then
+    :
+  else
+    failed_release="$(aws ssm get-parameter --name "$${desired_parameter}" --query Parameter.Value --output text 2>/dev/null || true)"
+    failed_deployment="$(aws ssm get-parameter --name "$${deployment_parameter}" --query Parameter.Value --output text 2>/dev/null || true)"
+    write_status failed "$${failed_release}" "$${failed_deployment}" "Release failed; previous release remains active"
+  fi
+  if [ "$${reconcile_requested}" = true ]; then
+    continue
+  fi
+  sleep 120 &
+  wait $! || true
+done

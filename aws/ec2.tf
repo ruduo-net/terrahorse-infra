@@ -98,7 +98,8 @@ locals {
           path        = "/usr/local/sbin/terrahorse-reconcile"
           owner       = "root:root"
           permissions = "0755"
-          content = templatefile("${path.module}/cloud_init/terrahorse-reconcile.sh.tftpl", {
+          # Product Editor lifecycle code stays out of production launch-template user data.
+          content = templatefile(environment == "dev" ? "${path.module}/cloud_init/terrahorse-reconcile-product-editor.sh.tftpl" : "${path.module}/cloud_init/terrahorse-reconcile.sh.tftpl", {
             environment           = environment
             dashboard_admin_email = config.dashboard_admin_email
           })
@@ -133,6 +134,16 @@ resource "aws_launch_template" "ec2" {
 
   iam_instance_profile {
     name = aws_iam_instance_profile.ec2[each.key].name
+  }
+
+  dynamic "metadata_options" {
+    for_each = each.key == "dev" ? [true] : []
+
+    content {
+      http_endpoint               = "enabled"
+      http_tokens                 = "required"
+      http_put_response_hop_limit = 1
+    }
   }
 
   block_device_mappings {
