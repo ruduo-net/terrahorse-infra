@@ -112,38 +112,13 @@ ensure_product_editor_network() {
     [ -n "$${container_id}" ] || continue
     owner="$(docker inspect --format '{{ index .Config.Labels "com.docker.compose.project" }}:{{ index .Config.Labels "com.docker.compose.service" }}' "$${container_id}")"
     case "$${owner}" in
-      terrahorse-ec2:api|terrahorse-product-editor:product-editor) ;;
+      terrahorse-ec2:api|terrahorse-ec2:cache|terrahorse-product-editor:product-editor) ;;
       *)
         echo "Unexpected container attached to terrahorse-product-editor: $${owner}" >&2
         return 1
         ;;
     esac
   done <<< "$${container_ids}"
-}
-
-append_optional_editor_credentials() {
-  local env_file="$1" parameter_prefix response parameter_count invalid_count name value
-  parameter_prefix="/terrahorse/$${environment}/ec2"
-  response="$(aws ssm get-parameters \
-    --names "$${parameter_prefix}/SALEOR_EDITOR_APP_ID" "$${parameter_prefix}/SALEOR_EDITOR_APP_TOKEN" \
-    --with-decryption \
-    --output json)"
-  parameter_count="$(jq -er '.Parameters | length' <<< "$${response}")"
-  invalid_count="$(jq -er '.InvalidParameters | length' <<< "$${response}")"
-
-  if [ "$${parameter_count}" -eq 0 ] && [ "$${invalid_count}" -eq 2 ]; then
-    printf 'SALEOR_EDITOR_APP_ID=\nSALEOR_EDITOR_APP_TOKEN=\n' >> "$${env_file}"
-    return 0
-  fi
-  if [ "$${parameter_count}" -ne 2 ] || [ "$${invalid_count}" -ne 0 ]; then
-    echo "Saleor editor app ID and token must both exist or both be absent" >&2
-    return 1
-  fi
-
-  for name in SALEOR_EDITOR_APP_ID SALEOR_EDITOR_APP_TOKEN; do
-    value="$(jq -er --arg parameter "$${parameter_prefix}/$${name}" '.Parameters[] | select(.Name == $parameter) | .Value' <<< "$${response}")"
-    printf '%s=%s\n' "$${name}" "$${value}" >> "$${env_file}"
-  done
 }
 
 start_and_verify_active_release() {
@@ -245,7 +220,6 @@ reconcile_once() {
       aws ssm get-parameter --name "/terrahorse/$${environment}/ec2/$${name}" --with-decryption --query Parameter.Value --output text >> "$${env_file}"
       printf '\n' >> "$${env_file}"
     done
-    append_optional_editor_credentials "$${env_file}"
   fi
   printf "RSA_PRIVATE_KEY='" >> "$${env_file}"
   aws ssm get-parameter --name "/terrahorse/$${environment}/ec2/RSA_PRIVATE_KEY" --with-decryption --query Parameter.Value --output text >> "$${env_file}"
