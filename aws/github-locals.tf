@@ -83,8 +83,6 @@ locals {
       "EMAIL_URL",
       "OPENAI_API_KEY",
       "EDITOR_GITHUB_TOKEN",
-      "SALEOR_EDITOR_APP_ID",
-      "SALEOR_EDITOR_APP_TOKEN",
     ]
     "aws-prod" = [
       "SALEOR_COMMERCE_APP_TOKEN",
