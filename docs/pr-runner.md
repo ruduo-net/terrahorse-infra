@@ -22,36 +22,29 @@ downloads, and matching Playwright browsers between PRs.
 
 ## First start
 
-Set Docker Desktop to 16 CPUs and at least 32 GiB of memory. From this
-repository's root, with Docker Desktop running and `gh` authenticated to
-administer runners in `ruduo-net/terrahorse-web`:
-
-Check the repository's Settings → Actions → Runners first. If either
-`terrahorse-m4-*` name is already registered on another machine, stop and
-resolve that collision explicitly. Registration does not replace an existing
-runner.
+Set Docker Desktop to 16 CPUs and at least 32 GiB of memory. Authenticate `gh`
+to administer runners in `ruduo-net/terrahorse-web`. From this repository's
+root, run:
 
 ```sh
-app_registration_token="$(gh api -X POST repos/ruduo-net/terrahorse-web/actions/runners/registration-token --jq .token)"
-runtime_registration_token="$(gh api -X POST repos/ruduo-net/terrahorse-web/actions/runners/registration-token --jq .token)"
-RUNNER_REGISTRATION_TOKEN="$app_registration_token" RUNNER_RUNTIME_REGISTRATION_TOKEN="$runtime_registration_token" docker compose -f compose.ci-runner.yml up -d --build
-unset app_registration_token runtime_registration_token
-docker compose -f compose.ci-runner.yml logs --tail=25 application-runner runtime-runner
+./scripts/start-pr-runner.sh
 ```
 
-Wait until both logs say `Listening for Jobs`, then remove the one-time tokens
-from the container configurations. Registration remains in the named volumes:
-
-```sh
-docker compose -f compose.ci-runner.yml up -d --force-recreate --no-build
-gh api repos/ruduo-net/terrahorse-web/actions/runners --jq '.runners[] | select(.name == "terrahorse-m4-app" or .name == "terrahorse-m4-runtime") | {name,status,busy,labels:[.labels[].name]}'
-```
+The script refuses a remote Docker daemon or an existing GitHub registration
+without matching local state. It builds the image before requesting any
+one-hour registration tokens. Registration runs in short-lived containers
+that exit before either runner starts accepting jobs; only the named volumes
+retain the runner identities, and the long-lived containers have no token in
+their environment. Existing runner containers are not recreated while the
+script runs. Replacing an existing runner image is a separate maintenance
+operation after its PR jobs finish. Wait until both runners report `online`
+if they are initially shown as `offline`.
 
 Both runners should report `online` with their respective `terrahorse-pr-app`
 and `terrahorse-pr-runtime` labels. Later starts do not need registration tokens:
 
 ```sh
-docker compose -f compose.ci-runner.yml up -d --no-build
+./scripts/start-pr-runner.sh
 ```
 
 To pause PR jobs, run `docker compose -f compose.ci-runner.yml stop`. To remove
