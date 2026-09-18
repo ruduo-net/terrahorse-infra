@@ -48,8 +48,10 @@ and `terrahorse-pr-runtime` labels. Later starts do not need registration tokens
 ./scripts/start-pr-runner.sh
 ```
 
-To pause PR jobs, run `docker compose -f compose.ci-runner.yml stop`. To remove
-the setup entirely, first remove both `terrahorse-m4-*` entries under the web
-repository's Settings → Actions → Runners, then run
-`docker compose -f compose.ci-runner.yml down -v`. The latter deletes only this
-Compose project's runner volume and registration state.
+To pause PR jobs, run
+`docker compose --project-name terrahorse-pr-runner -f compose.ci-runner.yml stop`.
+To remove the setup entirely, first remove both `terrahorse-m4-*` entries under
+the web repository's Settings → Actions → Runners, then run
+`docker compose --project-name terrahorse-pr-runner -f compose.ci-runner.yml down -v`.
+The latter deletes only this Compose project's runner volumes and registration
+state.

@@ -19,6 +19,10 @@ if [ -f /runner/.runner ]; then
         process.exit(1);
       }
     }
+    if (process.env.RUNNER_EXPECTED_ID && String(saved.agentId) !== process.env.RUNNER_EXPECTED_ID) {
+      console.error("Persisted runner ID does not match GitHub; refusing to connect");
+      process.exit(1);
+    }
   '
 elif [ "${RUNNER_PREFLIGHT_ONLY:-}" = 1 ]; then
   echo 'Runner registration is required'
