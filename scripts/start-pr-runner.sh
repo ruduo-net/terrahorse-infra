@@ -3,15 +3,17 @@ set -eu
 
 cd "$(dirname "$0")/.."
 
-if [ "$(uname -s)" != Darwin ] || [ -n "${DOCKER_HOST:-}" ] || [ -n "${DOCKER_CONTEXT:-}" ]; then
-  echo 'Use this script on the Mac with the local Docker Desktop context and no Docker overrides' >&2
+if [ "$(uname -s)" != Darwin ] || [ "$(uname -m)" != arm64 ] \
+  || [ -n "${DOCKER_HOST:-}" ] || [ -n "${DOCKER_CONTEXT:-}" ] \
+  || { [ -n "${DOCKER_DEFAULT_PLATFORM:-}" ] && [ "$DOCKER_DEFAULT_PLATFORM" != linux/arm64 ]; }; then
+  echo 'Use this script on an ARM64 Mac with local Docker Desktop and no conflicting Docker overrides' >&2
   exit 1
 fi
 
 if [ "$(docker context show)" != desktop-linux ] \
   || [ "$(docker context inspect desktop-linux --format '{{ .Endpoints.docker.Host }}')" != "unix://$HOME/.docker/run/docker.sock" ] \
-  || [ "$(docker info --format '{{.Name}}|{{.OperatingSystem}}')" != 'docker-desktop|Docker Desktop' ]; then
-  echo 'The active Docker daemon is not the expected local Docker Desktop' >&2
+  || [ "$(docker info --format '{{.Name}}|{{.OperatingSystem}}|{{.Architecture}}')" != 'docker-desktop|Docker Desktop|aarch64' ]; then
+  echo 'The active Docker daemon is not the expected local ARM64 Docker Desktop' >&2
   exit 1
 fi
 

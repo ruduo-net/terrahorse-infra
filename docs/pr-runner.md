@@ -30,9 +30,10 @@ root, run:
 ./scripts/start-pr-runner.sh
 ```
 
-The script refuses a remote Docker daemon or an existing GitHub registration
-without matching local state. It builds the image before requesting any
-one-hour registration tokens. Registration runs in short-lived containers
+The script refuses a remote or non-ARM64 Docker daemon, a conflicting Docker
+platform override, or an existing GitHub registration without matching local
+state. It builds the image before requesting any one-hour registration tokens.
+Registration runs in short-lived containers
 that exit before either runner starts accepting jobs; only the named volumes
 retain the runner identities, and the long-lived containers have no token in
 their environment. Existing runner containers are not recreated while the
