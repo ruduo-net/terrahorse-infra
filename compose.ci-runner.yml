@@ -18,6 +18,7 @@ services:
       RUNNER_NAME: terrahorse-m4-app
       RUNNER_LABELS: terrahorse-pr-app
       RUNNER_REGISTRATION_TOKEN: ${RUNNER_REGISTRATION_TOKEN:-}
+      NPM_CONFIG_CACHE: /runner/_npm-cache
     volumes:
       - runner-state:/runner
 

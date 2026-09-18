@@ -13,7 +13,8 @@ Docker volume. Code submitted in a same-repository pull request runs inside this
 container, so limit branch write access to trusted collaborators. Keep deploy
 secrets and privileged jobs off the `terrahorse-pr-app` label. The runner is
 available only while Docker Desktop and the Mac are running; GitHub queues
-matching PR checks while it is offline.
+matching PR checks while it is offline. The same volume retains the Node toolchain
+and npm download cache between PRs.
 
 ## First start
 
