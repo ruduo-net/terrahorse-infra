@@ -12,10 +12,11 @@ The Runtime image check uses a separate rootless Docker-in-Docker daemon on a
 private Compose network. Docker requires that daemon's container to be
 privileged, but its API is unavailable to the Application runner and neither
 the daemon nor its build containers mount the Mac's Docker socket or home
-directory. Each runner's registration and job workspace live in a separate
-named Docker volume. Same-repository PR code runs inside these containers, so
-limit branch write access to trusted collaborators and keep deploy secrets and
-privileged jobs off both custom labels. The runners are available only while
+directory. The daemon has its own process limit. Each runner's registration and
+job workspace live in a separate named Docker volume. Same-repository PR code
+runs inside these containers, so limit branch write access to trusted
+collaborators. Keep deploy secrets and privileged jobs off both custom labels.
+The runners are available only while
 Docker Desktop and the Mac are running; GitHub queues matching checks while
 they are offline. The Application volume retains the Node toolchain, npm
 downloads, and matching Playwright browsers between PRs.
@@ -32,8 +33,8 @@ root, run:
 
 The script refuses a remote or non-ARM64 Docker daemon, a conflicting Docker
 platform override, or an existing GitHub registration without matching local
-state. It builds the image before requesting any one-hour registration tokens.
-Registration runs in short-lived containers
+ID and labels. It builds the image before requesting any one-hour registration
+tokens. Registration runs in short-lived containers
 that exit before either runner starts accepting jobs; only the named volumes
 retain the runner identities, and the long-lived containers have no token in
 their environment. Existing runner containers are not recreated while the

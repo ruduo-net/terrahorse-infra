@@ -27,12 +27,19 @@ gh auth status >/dev/null
 preflight_runner() {
   service=$1
   name=$2
-  registered=$(gh api repos/ruduo-net/terrahorse-web/actions/runners --jq ".runners[] | select(.name == \"$name\") | [.id, .busy] | @tsv")
+  expected_label=$3
+  registered=$(gh api repos/ruduo-net/terrahorse-web/actions/runners --jq ".runners[] | select(.name == \"$name\") | [.id, .busy, ([.labels[].name] | sort | join(\",\"))] | @tsv")
   registered_id=$(printf '%s\n' "$registered" | cut -f1)
   registered_busy=$(printf '%s\n' "$registered" | cut -f2)
+  registered_labels=$(printf '%s\n' "$registered" | cut -f3)
 
   if [ "$registered_busy" = true ]; then
     echo "$name is accepting a job; wait for it to finish before changing the runner" >&2
+    exit 1
+  fi
+
+  if [ -n "$registered_id" ] && [ "$registered_labels" != "$expected_label" ]; then
+    echo "$name has unexpected GitHub labels; resolve them before starting the runner" >&2
     exit 1
   fi
 
@@ -67,13 +74,13 @@ register_runner() {
 }
 
 compose build application-runner
-if preflight_runner application-runner terrahorse-m4-app; then
+if preflight_runner application-runner terrahorse-m4-app terrahorse-pr-app; then
   app_registration_needed=0
 else
   app_registration_needed=$?
   [ "$app_registration_needed" = 10 ] || exit "$app_registration_needed"
 fi
-if preflight_runner runtime-runner terrahorse-m4-runtime; then
+if preflight_runner runtime-runner terrahorse-m4-runtime terrahorse-pr-runtime; then
   runtime_registration_needed=0
 else
   runtime_registration_needed=$?
