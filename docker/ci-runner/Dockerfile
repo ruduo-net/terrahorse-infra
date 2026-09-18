@@ -5,7 +5,7 @@ FROM docker:29.8.1-cli AS docker-cli
 FROM mcr.microsoft.com/playwright:v1.63.0-noble
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends git libicu74 libssl3t64 ca-certificates \
+    && apt-get install -y --no-install-recommends git make libicu74 libssl3t64 ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --create-home --uid 10001 ci \
     && mkdir -p /runner /opt/actions-runner \
