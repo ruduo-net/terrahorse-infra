@@ -1,7 +1,7 @@
 # TerraHorse Infrastructure
 
-The [local pull-request runner](docs/pr-runner.md) runs the web repository's
-credential-free Application check on a developer Mac.
+The [local pull-request runners](docs/pr-runner.md) run the web repository's
+credential-free PR checks on a developer Mac.
 
 ## E2E infrastructure
 

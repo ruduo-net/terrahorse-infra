@@ -1,5 +1,7 @@
 FROM ghcr.io/actions/actions-runner:2.337.0 AS github-runner
 
+FROM docker:29.8.1-cli AS docker-cli
+
 FROM mcr.microsoft.com/playwright:v1.63.0-noble
 
 RUN apt-get update \
@@ -10,6 +12,8 @@ RUN apt-get update \
     && chown -R ci:ci /runner /opt/actions-runner
 
 COPY --from=github-runner --chown=ci:ci /home/runner/ /opt/actions-runner/
+COPY --from=docker-cli /usr/local/bin/docker /usr/local/bin/docker
+COPY --from=docker-cli /usr/local/libexec/docker/cli-plugins/ /usr/local/libexec/docker/cli-plugins/
 COPY --chown=ci:ci start.sh /opt/actions-runner/start.sh
 
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright

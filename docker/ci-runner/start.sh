@@ -13,8 +13,8 @@ if [ ! -f /runner/.runner ]; then
     --token "$registration_token" \
     --name "$runner_name" \
     --labels "$runner_labels" \
-    --work _work \
-    --replace
+    --no-default-labels \
+    --work _work
   unset registration_token runner_name runner_labels
 fi
 
