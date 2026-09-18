@@ -1,0 +1,25 @@
+name: terrahorse-pr-runner
+
+services:
+  application-runner:
+    build:
+      context: docker/ci-runner
+    image: terrahorse-pr-runner:local
+    init: true
+    restart: unless-stopped
+    cpus: 16
+    mem_limit: 12g
+    pids_limit: 512
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      RUNNER_NAME: terrahorse-m4-app
+      RUNNER_LABELS: terrahorse-pr-app
+      RUNNER_REGISTRATION_TOKEN: ${RUNNER_REGISTRATION_TOKEN:-}
+    volumes:
+      - runner-state:/runner
+
+volumes:
+  runner-state:
