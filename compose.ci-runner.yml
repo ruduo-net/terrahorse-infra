@@ -1,0 +1,70 @@
+name: terrahorse-pr-runner
+
+services:
+  application-runner:
+    build:
+      context: docker/ci-runner
+    image: terrahorse-pr-runner:local
+    init: true
+    restart: unless-stopped
+    cpus: 16
+    mem_limit: 12g
+    pids_limit: 512
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      RUNNER_NAME: terrahorse-m4-app
+      RUNNER_LABELS: terrahorse-pr-app
+      NPM_CONFIG_CACHE: /runner/_npm-cache
+      PLAYWRIGHT_BROWSERS_PATH: /runner/_playwright-browsers
+    volumes:
+      - runner-state:/runner
+
+  runtime-runner:
+    image: terrahorse-pr-runner:local
+    init: true
+    restart: unless-stopped
+    cpus: 16
+    mem_limit: 4g
+    pids_limit: 512
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      runtime-docker:
+        condition: service_healthy
+    environment:
+      RUNNER_NAME: terrahorse-m4-runtime
+      RUNNER_LABELS: terrahorse-pr-runtime
+      DOCKER_HOST: tcp://runtime-docker:2375
+    volumes:
+      - runtime-runner-state:/runner
+    networks:
+      - runtime
+
+  runtime-docker:
+    image: docker:29.8.1-dind-rootless
+    privileged: true
+    restart: unless-stopped
+    cpus: 16
+    mem_limit: 12g
+    pids_limit: 2048
+    environment:
+      DOCKER_TLS_CERTDIR: ''
+    healthcheck:
+      test: ['CMD', 'docker', '-H', 'tcp://127.0.0.1:2375', 'info']
+      interval: 3s
+      timeout: 3s
+      retries: 30
+    networks:
+      - runtime
+
+volumes:
+  runner-state:
+  runtime-runner-state:
+
+networks:
+  runtime:

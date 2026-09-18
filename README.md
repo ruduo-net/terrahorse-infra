@@ -1,4 +1,9 @@
-# TerraHorse E2E Infrastructure
+# TerraHorse Infrastructure
+
+The [local pull-request runners](docs/pr-runner.md) run the web repository's
+credential-free PR checks on a developer Mac.
+
+## E2E infrastructure
 
 This repository owns the disposable `terrahorse-web-e2e` runtime behind
 `e2e.terrahorse.lt`. One Compose project contains PostgreSQL, Valkey, the Saleor
