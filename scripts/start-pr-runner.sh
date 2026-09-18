@@ -28,7 +28,7 @@ preflight_runner() {
   service=$1
   name=$2
   expected_label=$3
-  registered=$(gh api repos/ruduo-net/terrahorse-web/actions/runners --jq ".runners[] | select(.name == \"$name\") | [.id, .busy, ([.labels[].name] | sort | join(\",\"))] | @tsv")
+  registered=$(gh api --paginate repos/ruduo-net/terrahorse-web/actions/runners --jq ".runners[] | select(.name == \"$name\") | [.id, .busy, ([.labels[].name] | sort | join(\",\"))] | @tsv")
   registered_id=$(printf '%s\n' "$registered" | cut -f1)
   registered_busy=$(printf '%s\n' "$registered" | cut -f2)
   registered_labels=$(printf '%s\n' "$registered" | cut -f3)
@@ -96,5 +96,5 @@ fi
 
 compose up -d --no-build --no-recreate --no-deps runtime-docker
 compose up -d --no-build --no-recreate
-gh api repos/ruduo-net/terrahorse-web/actions/runners \
+gh api --paginate repos/ruduo-net/terrahorse-web/actions/runners \
   --jq '.runners[] | select(.name == "terrahorse-m4-app" or .name == "terrahorse-m4-runtime") | {name,status,busy,labels:[.labels[].name]}'
