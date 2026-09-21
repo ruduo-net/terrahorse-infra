@@ -62,9 +62,31 @@ services:
     networks:
       - runtime
 
+  deployment-runner:
+    build:
+      context: docker
+      dockerfile: deployment-runner/Dockerfile
+    image: terrahorse-deployment-runner:local
+    init: true
+    restart: unless-stopped
+    cpus: 4
+    mem_limit: 4g
+    pids_limit: 512
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      RUNNER_NAME: terrahorse-m4-deploy
+      RUNNER_LABELS: terrahorse-deploy
+      NPM_CONFIG_CACHE: /runner/_npm-cache
+    volumes:
+      - deployment-runner-state:/runner
+
 volumes:
   runner-state:
   runtime-runner-state:
+  deployment-runner-state:
 
 networks:
   runtime:

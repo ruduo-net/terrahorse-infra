@@ -73,7 +73,7 @@ register_runner() {
   unset registration_token
 }
 
-compose build application-runner
+compose build application-runner deployment-runner
 if preflight_runner application-runner terrahorse-m4-app terrahorse-pr-app; then
   app_registration_needed=0
 else
@@ -86,6 +86,12 @@ else
   runtime_registration_needed=$?
   [ "$runtime_registration_needed" = 10 ] || exit "$runtime_registration_needed"
 fi
+if preflight_runner deployment-runner terrahorse-m4-deploy terrahorse-deploy; then
+  deployment_registration_needed=0
+else
+  deployment_registration_needed=$?
+  [ "$deployment_registration_needed" = 10 ] || exit "$deployment_registration_needed"
+fi
 
 if [ "$app_registration_needed" = 10 ]; then
   register_runner application-runner
@@ -93,8 +99,11 @@ fi
 if [ "$runtime_registration_needed" = 10 ]; then
   register_runner runtime-runner
 fi
+if [ "$deployment_registration_needed" = 10 ]; then
+  register_runner deployment-runner
+fi
 
 compose up -d --no-build --no-recreate --no-deps runtime-docker
 compose up -d --no-build --no-recreate
 gh api --paginate repos/ruduo-net/terrahorse-web/actions/runners \
-  --jq '.runners[] | select(.name == "terrahorse-m4-app" or .name == "terrahorse-m4-runtime") | {name,status,busy,labels:[.labels[].name]}'
+  --jq '.runners[] | select(.name == "terrahorse-m4-app" or .name == "terrahorse-m4-runtime" or .name == "terrahorse-m4-deploy") | {name,status,busy,labels:[.labels[].name]}'
