@@ -1,7 +1,7 @@
 # TerraHorse Infrastructure
 
-The [local pull-request runners](docs/pr-runner.md) run the web repository's
-credential-free PR checks on a developer Mac.
+The [local GitHub Actions runners](docs/pr-runner.md) run the web repository's
+credential-free PR checks and trusted deployment orchestration on a developer Mac.
 
 ## E2E infrastructure
 

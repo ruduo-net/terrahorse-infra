@@ -26,6 +26,16 @@ jobs:
           ! grep -Eq 'OPENAI_API_KEY|EDITOR_GITHUB_TOKEN|SALEOR_EDITOR_APP_(ID|TOKEN)|product-editor' \
             aws/cloud_init/terrahorse-reconcile.sh.tftpl
           ! git grep -nEi 'shared[- ]saleor|SALEOR_E2E_ADMIN_TOKEN' -- ':!.github/workflows/ci.yml'
+          GITHUB_REPOSITORY=ruduo-net/terrahorse-web \
+            GITHUB_REF=refs/heads/main \
+            GITHUB_WORKFLOW_REF=ruduo-net/terrahorse-web/.github/workflows/ci-cd-aws.yaml@refs/heads/main \
+            GITHUB_EVENT_NAME=push \
+            sh docker/deployment-runner/job-started.sh
+          ! GITHUB_REPOSITORY=ruduo-net/terrahorse-web \
+            GITHUB_REF=refs/pull/1/merge \
+            GITHUB_WORKFLOW_REF=ruduo-net/terrahorse-web/.github/workflows/ci-cd-aws.yaml@refs/pull/1/merge \
+            GITHUB_EVENT_NAME=pull_request \
+            sh docker/deployment-runner/job-started.sh
           APP_VERSION=test E2E_INFRA_ROOT=/tmp E2E_RUN_STATE_DIR=/tmp E2E_STOREFRONT_WORKTREE=/tmp \
             E2E_TUNNEL_CONFIG_FILE=/tmp/config E2E_TUNNEL_CREDENTIALS_FILE=/tmp/credentials \
             SALEOR_DATABASE_PASSWORD=test SALEOR_SECRET_KEY=test \
