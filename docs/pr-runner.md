@@ -42,11 +42,11 @@ The script refuses a remote or non-ARM64 Docker daemon, a conflicting Docker
 platform override, or an existing GitHub registration without matching local
 ID and labels. It builds the image before requesting any one-hour registration
 tokens. Registration runs in short-lived containers
-that exit before either runner starts accepting jobs; only the named volumes
+that exit before any runner starts accepting jobs; only the named volumes
 retain the runner identities, and the long-lived containers have no token in
 their environment. Existing runner containers are not recreated while the
 script runs. Replacing an existing runner image is a separate maintenance
-operation after its PR jobs finish. Wait until both runners report `online`
+operation after its jobs finish. Wait until all three runners report `online`
 if they are initially shown as `offline`.
 
 All three runners should report `online` with their respective
