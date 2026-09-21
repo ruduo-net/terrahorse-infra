@@ -80,6 +80,7 @@ services:
       RUNNER_NAME: terrahorse-m4-deploy
       RUNNER_LABELS: terrahorse-deploy
       NPM_CONFIG_CACHE: /runner/_npm-cache
+      ACTIONS_RUNNER_HOOK_JOB_STARTED: /opt/runner-hooks/job-started.sh
     volumes:
       - deployment-runner-state:/runner
 

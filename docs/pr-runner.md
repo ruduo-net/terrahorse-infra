@@ -20,9 +20,12 @@ runs inside these containers, so limit branch write access to trusted
 collaborators. Keep deploy secrets and privileged jobs off both PR labels.
 The deployment runner has no Docker socket or host mount. It has AWS CLI and
 `jq`, receives short-lived AWS credentials through GitHub OIDC, and is selected
-only by the `terrahorse-deploy` label. Never route pull-request jobs to this
-label: deployment jobs can read protected GitHub Environment secrets and assume
-the narrowly scoped deployment roles.
+only by the `terrahorse-deploy` label. A root-owned job-start hook admits only
+`push` and `workflow_dispatch` jobs from the protected `main` revision of the
+web deployment workflow. It rejects pull-request events before their first
+step, so changing a PR workflow to request the label cannot modify persistent
+runner state or reach deployment credentials. Deployment jobs can read protected
+GitHub Environment secrets and assume the narrowly scoped deployment roles.
 The runners are available only while
 Docker Desktop and the Mac are running; GitHub queues matching checks while
 they are offline. The Application volume retains the Node toolchain, npm
