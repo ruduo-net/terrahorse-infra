@@ -29,5 +29,4 @@ jobs:
           APP_VERSION=test E2E_INFRA_ROOT=/tmp E2E_RUN_STATE_DIR=/tmp E2E_STOREFRONT_WORKTREE=/tmp \
             E2E_TUNNEL_CONFIG_FILE=/tmp/config E2E_TUNNEL_CREDENTIALS_FILE=/tmp/credentials \
             SALEOR_DATABASE_PASSWORD=test SALEOR_SECRET_KEY=test \
-            SALEOR_PAYMENT_WEBHOOK_SECRET=01234567890123456789012345678901 \
             docker compose -f compose.e2e.yml config --quiet
