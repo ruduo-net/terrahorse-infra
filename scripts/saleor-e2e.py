@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import datetime
+import hashlib
 import io
 import json
 import os
@@ -45,6 +46,7 @@ def seed():
     from saleor.account.models import Address
     from saleor.app.models import App
     from saleor.channel.models import Channel
+    from saleor.page.models import Page, PageType
     from saleor.product import ProductTypeKind
     from saleor.product.models import (
         Category,
@@ -141,6 +143,23 @@ def seed():
         )
         Stock.objects.create(product_variant=variant, warehouse=warehouse, quantity=10)
 
+        terms_content = {"blocks": [{"type": "paragraph", "data": {
+            "text": "Disposable sandbox terms for the isolated E2E checkout only."
+        }}]}
+        terms_type = PageType.objects.create(name="E2E legal document", slug="legal-document")
+        Page.objects.create(
+            page_type=terms_type, title="E2E sandbox terms", slug="terms-and-conditions",
+            content=terms_content, is_published=True, published_at=timezone.now(),
+            metadata={
+                "terrahorse.legal.version": "e2e-v1",
+                "terrahorse.legal.effective-date": "2026-01-01",
+                "terrahorse.legal.status": "draft",
+                "terrahorse.legal.source-sha.en": hashlib.sha256(
+                    json.dumps(terms_content, sort_keys=True).encode()
+                ).hexdigest(),
+            },
+        )
+
         output = io.StringIO()
         call_command(
             "create_app", "TerraHorse E2E Runtime", identifier="terrahorse-e2e",
@@ -194,6 +213,7 @@ def mutation_result(data, key):
 def verify():
     data, runtime = graphql("""query($slug:String!,$channel:String!){
       shop{version} app{id identifier name isActive permissions{code} webhooks{id}}
+      page(slug:"terms-and-conditions"){slug isPublished pageType{slug} metadata{key value}}
       product(slug:$slug,channel:$channel){slug category{slug metadata{key value}}
         productType{slug hasVariants isShippingRequired} productVariants(first:2){edges{node{
           id sku weight{unit value} metadata{key value} quantityAvailable pricing{price{gross{amount currency}}}}}}}
@@ -211,6 +231,12 @@ def verify():
         raise RuntimeError("runtime-app-identity-mismatch")
     if app["webhooks"]:
         raise RuntimeError("runtime-webhook-count-mismatch")
+    terms = data["page"]
+    if not terms or not terms["isPublished"] or terms["pageType"]["slug"] != "legal-document":
+        raise RuntimeError("fixture-terms-missing")
+    terms_metadata = {item["key"]: item["value"] for item in terms["metadata"]}
+    if terms_metadata.get("terrahorse.legal.version") != "e2e-v1" or terms_metadata.get("terrahorse.legal.status") != "draft":
+        raise RuntimeError("fixture-terms-metadata-mismatch")
     product = data["product"]
     variant = product["productVariants"]["edges"][0]["node"]
     metadata = {item["key"]: item["value"] for item in variant["metadata"]}

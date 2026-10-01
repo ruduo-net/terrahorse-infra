@@ -79,6 +79,9 @@ charge-request grant ([ADR 0010](https://github.com/ruduo-net/terrahorse-web/blo
 It creates no transaction-initialize webhook and verifies that the fixture app
 has no subscriptions. Montonio's authenticated callback remains the public
 payment notification route.
+The disposable catalog includes clearly marked draft sandbox terms, required
+by the current Pay boundary. They exist only in this isolated database and are
+never published to production.
 
 Standalone public verification while the project is running uses the resolved
 SHA from the owner record:
