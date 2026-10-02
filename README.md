@@ -59,7 +59,7 @@ worktree, creates fresh internal Saleor secrets, and runs these bounded stages:
 
 1. PostgreSQL and Valkey health;
 2. Saleor migrations and deterministic seed;
-3. private API, app, webhook, delivery, and disposable-checkout verification;
+3. private API, app, delivery, and disposable-checkout verification;
 4. worker and the single Beat scheduler;
 5. exact-SHA storefront and the existing Cloudflared connector;
 6. public SHA, noindex, callback-path, seeded-product, and storefront-checkout
@@ -73,6 +73,15 @@ The run creates no Montonio Order and performs no browser payment. A failed
 start removes only Compose project `terrahorse-web-e2e`, its volumes, and its
 generated `.e2e-run/` state after confirming teardown. If teardown is
 incomplete, owner state is retained for the project-scoped stop command.
+
+The fixture follows the storefront's Saleor-owned payment attempts and atomic
+charge-request grant ([ADR 0010](https://github.com/ruduo-net/terrahorse-web/blob/main/docs/decisions/0010-payment-intent-attempt-retry-boundary.md)).
+It creates no transaction-initialize webhook and verifies that the fixture app
+has no subscriptions. Montonio's authenticated callback remains the public
+payment notification route.
+The disposable catalog includes clearly marked draft sandbox terms, required
+by the current Pay boundary. They exist only in this isolated database and are
+never published to production.
 
 Standalone public verification while the project is running uses the resolved
 SHA from the owner record:
