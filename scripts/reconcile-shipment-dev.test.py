@@ -31,10 +31,10 @@ if name=='aws':
 elif name=='curl':
   if a[-1].endswith('/api/token'): out('metadata-token')
   elif a[-1].endswith('/instance-id'): out('i-dev')
-  elif s.get('health_failure'): sys.exit(1)
+  elif s.get('health_failure') and a[-1].endswith('/health'): sys.exit(1)
   elif '/en/shipment-operator' in a[-1]: out('<script src="https://dev.terrahorse.lt/shipment-operator/assets/_nuxt/widget.js"></script>')
   elif '/assets/_nuxt/' in a[-1]:
-    if s.get('asset_failure'): sys.exit(1)
+    if s.get('asset_failure') or (s.get('candidate_asset_failure') and (root/'ups').read_text()=='2'): sys.exit(1)
     out('public widget asset')
   else: out({'status':'ok','service':'shipment-operator','version':'test-release'})
 elif name=='openssl': pass
@@ -154,8 +154,9 @@ class ReconcileTest(unittest.TestCase):
         result, calls = self.run_reconcile()
         self.assertEqual(result.returncode, 143)
         self.assertEqual((self.runtime / "active").resolve(), active)
-        self.assertIn(str(active / ".env"), calls[-1])
-        self.assertIn("--remove-orphans", calls[-1])
+        restored = [call for call in calls if call[0] == "docker" and "up" in call][-1]
+        self.assertIn(str(active / ".env"), restored)
+        self.assertIn("--remove-orphans", restored)
         self.assertEqual(len(list((self.runtime / "releases").iterdir())), 1)
 
     def test_termination_during_cleanup_does_not_abandon_rollback(self):
@@ -168,7 +169,8 @@ class ReconcileTest(unittest.TestCase):
         result, calls = self.run_reconcile()
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual((self.runtime / "active").resolve(), active)
-        self.assertIn(str(active / ".env"), calls[-1])
+        restored = [call for call in calls if call[0] == "docker" and "up" in call][-1]
+        self.assertIn(str(active / ".env"), restored)
         self.assertEqual(len(list((self.runtime / "releases").iterdir())), 1)
 
     def test_failed_restore_stops_project_and_retains_diagnostics(self):
@@ -203,7 +205,8 @@ class ReconcileTest(unittest.TestCase):
         result, calls = self.run_reconcile()
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("NUXT_APP_CDN_URL: https://dev.terrahorse.lt/shipment-operator/assets", overlay.read_text())
-        self.assertIn(str(overlay), calls[-1])
+        restored = [call for call in calls if call[0] == "docker" and "up" in call][-1]
+        self.assertIn(str(overlay), restored)
 
     def test_asset_rule_preserves_storefront_assets_graphql_and_media(self):
         source = SOURCE.parent.parent.joinpath("aws/cloudflare.tf").read_text()
@@ -250,11 +253,25 @@ class ReconcileTest(unittest.TestCase):
         result, calls = self.run_reconcile()
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual((self.runtime / "active").resolve(), active)
-        self.assertEqual(calls[-1][0], "docker")
-        self.assertIn(str(active / ".env"), calls[-1])
+        restored = [call for call in calls if call[0] == "docker" and "up" in call][-1]
+        self.assertIn(str(active / ".env"), restored)
         self.assertEqual(len(list((self.runtime / "releases").iterdir())), 1)
 
     def test_failed_asset_probe_restores_previous(self):
+        result, _ = self.run_reconcile()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        active = (self.runtime / "active").resolve()
+        self.state["release"]["release"] = "new-release"
+        self.state["candidate_asset_failure"] = True
+        result, calls = self.run_reconcile()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual((self.runtime / "active").resolve(), active)
+        restored = [call for call in calls if call[0] == "docker" and "up" in call][-1]
+        self.assertIn(str(active / ".env"), restored)
+        self.assertTrue(calls[-1][-1].endswith("/assets/_nuxt/widget.js"))
+        self.assertEqual(len(list((self.runtime / "releases").iterdir())), 1)
+
+    def test_asset_failure_after_restore_stops_project_and_retains_diagnostics(self):
         result, _ = self.run_reconcile()
         self.assertEqual(result.returncode, 0, result.stderr)
         active = (self.runtime / "active").resolve()
@@ -263,7 +280,11 @@ class ReconcileTest(unittest.TestCase):
         result, calls = self.run_reconcile()
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual((self.runtime / "active").resolve(), active)
-        self.assertIn(str(active / ".env"), calls[-1])
+        self.assertIn("rollback failed; exact project stopped", result.stderr)
+        self.assertIn("down", calls[-1])
+        self.assertIn("--remove-orphans", calls[-1])
+        self.assertTrue(calls[-2][-1].endswith("/assets/_nuxt/widget.js"))
+        self.assertEqual(len(list((self.runtime / "releases").iterdir())), 2)
 
 
 if __name__ == "__main__":

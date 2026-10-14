@@ -202,6 +202,7 @@ compose() {
 restore_runtime() {
   if [ -n "$previous" ]; then
     compose "$previous" up -d --remove-orphans --wait --wait-timeout 60 >/dev/null || return 1
+    verify_assets || return 1
     ln -sfn "$previous" "$root/active.next" && mv -Tf "$root/active.next" "$root/active"
   else
     compose "$candidate" down --remove-orphans >/dev/null || return 1

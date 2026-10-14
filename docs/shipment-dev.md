@@ -35,7 +35,7 @@ and rolled-back operators serve matching assets regardless of the storefront
 version, without a new hostname or CORS permission. Infrastructure supplies the
 third `compose.shipment-assets.yml` overlay and proxy configuration, including for
 legacy rollback candidates. A module referenced by the real rendered page is
-probed through the proxy before promotion.
+probed through the proxy before promotion and before accepting a restored runtime.
 
 Dev ASG uses `$Latest` for future instances without automatic instance refresh;
 bootstrap changes do not replace the active host during a full Terraform apply.
