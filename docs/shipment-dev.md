@@ -48,7 +48,8 @@ the existing Saleor certificate read-only; TLS and hostname checks stay enabled.
 Environment files are owner-only and are never printed. Failed startup restores the
 previous shipment runtime; first-start failure removes only the shipment project.
 Termination, including the service start timeout, runs the same rollback and
-first-start teardown; the stop budget allows up to 60 seconds for rollback health.
+first-start teardown. The 120-second stop budget allows a 60-second Compose health
+wait, 20 seconds for asset probes, 10 seconds for teardown, and command overhead.
 Cleanup ignores subsequent TERM/INT, so a timeout during an existing rollback
 cannot abandon the EXIT trap. Failed restoration stops the exact shipment project
 and retains private diagnostic inputs. A non-symlink or broken active path is refused

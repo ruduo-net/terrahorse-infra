@@ -230,8 +230,10 @@ if [ -n "$previous" ]; then
     cmp -s "$previous/compose.shipment-operator.yml" "$candidate/compose.shipment-operator.yml" &&
     cmp -s "$previous/compose.shipment-operator.ec2.yml" "$candidate/compose.shipment-operator.ec2.yml" &&
     cmp -s "$previous/compose.shipment-assets.yml" "$candidate/compose.shipment-assets.yml"; then
+    candidate_started=true
     compose "$previous" up -d --remove-orphans --wait --wait-timeout 60 >/dev/null
     verify_assets || fail 'active shipment asset route failed health'
+    candidate_started=false
     exit 0
   fi
 fi

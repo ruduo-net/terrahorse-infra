@@ -54,6 +54,7 @@ elif name=='docker':
     countfile=root/'ups'; count=int(countfile.read_text())+1 if countfile.exists() else 1; countfile.write_text(str(count))
     if count==s.get('signal_on_up'): os.kill(os.getppid(),signal.SIGTERM)
     if s.get('rollback_failure') and count>=3: sys.exit(1)
+    if count==s.get('failure_on_up'): sys.exit(1)
     if count==1 and s.get('startup_failure'): sys.exit(1)
 '''
 
@@ -106,6 +107,43 @@ class ReconcileTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual((self.runtime / "active").resolve(), active)
         self.assertEqual(len(list((self.runtime / "releases").iterdir())), 1)
+
+    def test_unchanged_startup_failure_restores_previous(self):
+        result, _ = self.run_reconcile()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        active = (self.runtime / "active").resolve()
+        self.state["failure_on_up"] = 2
+        result, calls = self.run_reconcile()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual((self.runtime / "active").resolve(), active)
+        self.assertEqual(len([call for call in calls if call[0] == "docker" and "up" in call]), 3)
+        self.assertTrue(calls[-1][-1].endswith("/assets/_nuxt/widget.js"))
+        self.assertEqual(len(list((self.runtime / "releases").iterdir())), 1)
+
+    def test_unchanged_startup_termination_restores_previous(self):
+        result, _ = self.run_reconcile()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        active = (self.runtime / "active").resolve()
+        self.state["signal_on_up"] = 2
+        result, calls = self.run_reconcile()
+        self.assertEqual(result.returncode, 143)
+        self.assertEqual((self.runtime / "active").resolve(), active)
+        self.assertEqual(len([call for call in calls if call[0] == "docker" and "up" in call]), 3)
+        self.assertTrue(calls[-1][-1].endswith("/assets/_nuxt/widget.js"))
+        self.assertEqual(len(list((self.runtime / "releases").iterdir())), 1)
+
+    def test_unchanged_persistent_asset_failure_stops_project(self):
+        result, _ = self.run_reconcile()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        active = (self.runtime / "active").resolve()
+        self.state["asset_failure"] = True
+        result, calls = self.run_reconcile()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual((self.runtime / "active").resolve(), active)
+        self.assertIn("rollback failed; exact project stopped", result.stderr)
+        self.assertIn("down", calls[-1])
+        self.assertIn("--remove-orphans", calls[-1])
+        self.assertEqual(len(list((self.runtime / "releases").iterdir())), 2)
 
     def test_wrong_account_and_host_fail_before_docker(self):
         for field in ("account", "host"):

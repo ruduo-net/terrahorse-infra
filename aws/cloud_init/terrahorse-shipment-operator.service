@@ -9,5 +9,5 @@ Type=oneshot
 EnvironmentFile=/etc/terrahorse/aws.env
 ExecStart=/usr/local/sbin/terrahorse-reconcile-shipment-dev
 TimeoutStartSec=180
-TimeoutStopSec=90
+TimeoutStopSec=120
 UMask=0077
