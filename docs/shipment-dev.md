@@ -49,6 +49,10 @@ Environment files are owner-only and are never printed. Failed startup restores 
 previous shipment runtime; first-start failure removes only the shipment project.
 Termination, including the service start timeout, runs the same rollback and
 first-start teardown; the stop budget allows up to 60 seconds for rollback health.
+Cleanup ignores subsequent TERM/INT, so a timeout during an existing rollback
+cannot abandon the EXIT trap. Failed restoration stops the exact shipment project
+and retains private diagnostic inputs. A non-symlink or broken active path is refused
+before Compose can replace anything.
 All startup and rollback operations remove orphans only within the shipment project.
 Unchanged successful inputs restore the existing service without accumulating
 candidate directories. Failed rollback retains private candidate inputs for diagnosis.

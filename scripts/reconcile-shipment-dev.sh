@@ -24,6 +24,12 @@ release=$(jq -er '.release' <<< "$status")
 registry="$account.dkr.ecr.$region.amazonaws.com"
 [[ "$release" =~ ^$account\.dkr\.ecr\.$region\.amazonaws\.com/terrahorse-release@sha256:[a-f0-9]{64}$ ]] || fail 'release must be an owned immutable digest'
 [ -f "$certificate" ] && openssl x509 -in "$certificate" -noout >/dev/null || fail 'internal Saleor CA is missing or invalid'
+if [ -e "$root/active" ] && [ ! -L "$root/active" ]; then
+  fail 'active runtime must be the managed symlink'
+fi
+if [ -L "$root/active" ] && [ ! -d "$root/active" ]; then
+  fail 'active runtime symlink must reference an existing directory'
+fi
 
 # The parent reconciler owns this network. Never attach to an unknown shared network.
 details=$(docker network inspect "$network")
@@ -53,13 +59,20 @@ retain=false
 previous=
 candidate_started=false
 cleanup() {
+  # A start timeout can arrive while EXIT cleanup is already restoring the project.
+  # Let an interrupted Compose command fail into teardown instead of exiting this trap.
+  trap '' TERM INT
   if [ "$candidate_started" = true ]; then
     if restore_runtime; then
       retain=false
       echo 'Previous shipment runtime restored or first candidate removed.' >&2
     else
       retain=true
-      echo 'Shipment rollback failed; private candidate inputs retained.' >&2
+      if compose "$candidate" down --remove-orphans --timeout 10 >/dev/null; then
+        echo 'Shipment rollback failed; exact project stopped and private inputs retained.' >&2
+      else
+        echo 'Shipment rollback and teardown failed; operator intervention required.' >&2
+      fi
     fi
   fi
   if [ -n "$container" ]; then docker rm -f "$container" >/dev/null 2>&1 || true; fi

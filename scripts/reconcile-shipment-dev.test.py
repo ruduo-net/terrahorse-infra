@@ -52,6 +52,7 @@ elif name=='docker':
   elif a[0]=='compose' and 'up' in a:
     countfile=root/'ups'; count=int(countfile.read_text())+1 if countfile.exists() else 1; countfile.write_text(str(count))
     if count==s.get('signal_on_up'): os.kill(os.getppid(),signal.SIGTERM)
+    if s.get('rollback_failure') and count>=3: sys.exit(1)
     if count==1 and s.get('startup_failure'): sys.exit(1)
 '''
 
@@ -155,6 +156,40 @@ class ReconcileTest(unittest.TestCase):
         self.assertIn(str(active / ".env"), calls[-1])
         self.assertIn("--remove-orphans", calls[-1])
         self.assertEqual(len(list((self.runtime / "releases").iterdir())), 1)
+
+    def test_termination_during_cleanup_does_not_abandon_rollback(self):
+        result, _ = self.run_reconcile()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        active = (self.runtime / "active").resolve()
+        self.state["release"]["release"] = "new-release"
+        self.state["health_failure"] = True
+        self.state["signal_on_up"] = 3
+        result, calls = self.run_reconcile()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual((self.runtime / "active").resolve(), active)
+        self.assertIn(str(active / ".env"), calls[-1])
+        self.assertEqual(len(list((self.runtime / "releases").iterdir())), 1)
+
+    def test_failed_restore_stops_project_and_retains_diagnostics(self):
+        result, _ = self.run_reconcile()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        active = (self.runtime / "active").resolve()
+        self.state["release"]["release"] = "new-release"
+        self.state["health_failure"] = True
+        self.state["rollback_failure"] = True
+        result, calls = self.run_reconcile()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual((self.runtime / "active").resolve(), active)
+        self.assertIn("down", calls[-1])
+        self.assertIn("--remove-orphans", calls[-1])
+        self.assertEqual(len(list((self.runtime / "releases").iterdir())), 2)
+
+    def test_regular_active_path_refuses_compose(self):
+        self.runtime.mkdir()
+        (self.runtime / "active").write_text("manual recovery marker")
+        result, calls = self.run_reconcile()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(any(call[0] == "docker" and "compose" in call for call in calls))
 
     def test_asset_overlay_is_kept_with_legacy_rollback(self):
         result, _ = self.run_reconcile()
