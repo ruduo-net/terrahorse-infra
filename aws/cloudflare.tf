@@ -72,6 +72,11 @@ resource "cloudflare_zero_trust_tunnel_cloudflared_config" "terrahorse" {
       each.key == "dev" ? [
         {
           hostname = each.value.hostname
+          path     = "^/shipment-operator/assets/_nuxt/.*$"
+          service  = "http://localhost:3210"
+        },
+        {
+          hostname = each.value.hostname
           path     = "^/(api/shipment-operator(/.*)?|((en|lt)/)?shipment-operator(/.*)?)$"
           service  = "http://localhost:3200"
         },
@@ -112,6 +117,7 @@ resource "cloudflare_zero_trust_tunnel_cloudflared_config" "terrahorse" {
     )
   }
 }
+
 
 resource "cloudflare_dns_record" "terrahorse-tunnel" {
   for_each = local.cloudflare_tunnels

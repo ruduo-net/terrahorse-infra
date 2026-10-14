@@ -40,17 +40,33 @@ for id in $(jq -r '.[0].Containers // {} | keys[]' <<< "$details"); do
   esac
 done
 [ "$api_found" = true ] && [ "$cache_found" = true ] || fail 'private Saleor and Valkey must already be running'
+media_id=$(docker ps --filter label=com.docker.compose.project=terrahorse-ec2 --filter label=com.docker.compose.service=media --format '{{.ID}}')
+[[ "$media_id" =~ ^[a-f0-9]{12,64}$ ]] || fail 'one active owning media proxy is required'
+asset_image=$(docker inspect --format '{{.Image}}' "$media_id")
+[[ "$asset_image" =~ ^sha256:[a-f0-9]{64}$ ]] || fail 'media proxy must have an immutable local image'
 
 umask 077
 install -d -m 0700 "$root/releases"
 candidate=$(mktemp -d "$root/releases/candidate.XXXXXX")
 container=
 retain=false
+previous=
+candidate_started=false
 cleanup() {
+  if [ "$candidate_started" = true ]; then
+    if restore_runtime; then
+      retain=false
+      echo 'Previous shipment runtime restored or first candidate removed.' >&2
+    else
+      retain=true
+      echo 'Shipment rollback failed; private candidate inputs retained.' >&2
+    fi
+  fi
   if [ -n "$container" ]; then docker rm -f "$container" >/dev/null 2>&1 || true; fi
   if [ "$retain" != true ]; then rm -rf -- "$candidate"; fi
 }
 trap cleanup EXIT
+trap 'exit 143' TERM INT
 aws ecr get-login-password --region "$region" | docker login --username AWS --password-stdin "$registry" >/dev/null
 docker pull "$release" >/dev/null
 [ "$(docker image inspect --format '{{index .Config.Labels "lt.terrahorse.release.shipment-operator-contract"}}' "$release")" = 1 ] || fail 'release lacks shipment contract v1'
@@ -87,35 +103,133 @@ write_value NUXT_PUBLIC_ENVIRONMENT preview
 write_value SHIPMENT_OPERATOR_NETWORK "$network"
 write_value SHIPMENT_OPERATOR_REDIS_URL redis://cache:6379/2
 write_value LOG_LEVEL info
+write_value SHIPMENT_ASSET_PROXY_IMAGE "$asset_image"
 
+write_asset_overlay() {
+  cat > "$1/compose.shipment-assets.yml" <<'COMPOSE'
+services:
+  shipment-operator:
+    environment:
+      NUXT_APP_CDN_URL: https://dev.terrahorse.lt/shipment-operator/assets
+    networks:
+      - shipment-assets
+  shipment-assets:
+    image: ${SHIPMENT_ASSET_PROXY_IMAGE:?SHIPMENT_ASSET_PROXY_IMAGE is required}
+    pull_policy: never
+    entrypoint: [nginx, -c, /etc/nginx/shipment-assets.conf, -g, "daemon off;"]
+    restart: unless-stopped
+    read_only: true
+    user: '101:101'
+    mem_limit: 64m
+    cpus: 0.25
+    pids_limit: 32
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: [/tmp:size=8m,mode=1777,nosuid,nodev,noexec]
+    volumes:
+      - ./shipment-assets.conf:/etc/nginx/shipment-assets.conf:ro
+    ports:
+      - 127.0.0.1:3210:8080
+    networks:
+      - shipment-ingress
+      - shipment-assets
+    depends_on:
+      shipment-operator:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD-SHELL, "wget -q -O /dev/null http://127.0.0.1:8080/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: 16m
+        max-file: '2'
+networks:
+  shipment-ingress: {}
+  shipment-assets:
+    internal: true
+COMPOSE
+  cat > "$1/shipment-assets.conf" <<'NGINX'
+pid /tmp/nginx.pid;
+error_log stderr warn;
+events { worker_connections 64; }
+http {
+  access_log off;
+  resolver 127.0.0.11 valid=1s ipv6=off;
+  upstream shipment_runtime {
+    zone shipment_runtime 32k;
+    server shipment-operator:3000 resolve;
+  }
+  client_body_temp_path /tmp/client;
+  proxy_temp_path /tmp/proxy;
+  fastcgi_temp_path /tmp/fastcgi;
+  uwsgi_temp_path /tmp/uwsgi;
+  scgi_temp_path /tmp/scgi;
+  server {
+    listen 8080;
+    location = /health { return 200 'ok'; }
+    location ^~ /shipment-operator/assets/_nuxt/ {
+      limit_except GET { deny all; }
+      proxy_set_header Authorization '';
+      proxy_set_header Cookie '';
+      proxy_pass http://shipment_runtime/_nuxt/;
+    }
+    location / { return 404; }
+  }
+}
+NGINX
+  chmod 0644 "$1/shipment-assets.conf"
+}
+write_asset_overlay "$candidate"
 compose() {
-  docker compose --project-name "$project" --env-file "$1/.env" -f "$1/compose.shipment-operator.yml" -f "$1/compose.shipment-operator.ec2.yml" "${@:2}"
+  docker compose --project-name "$project" --env-file "$1/.env" -f "$1/compose.shipment-operator.yml" -f "$1/compose.shipment-operator.ec2.yml" -f "$1/compose.shipment-assets.yml" "${@:2}"
+}
+restore_runtime() {
+  if [ -n "$previous" ]; then
+    compose "$previous" up -d --remove-orphans --wait --wait-timeout 60 >/dev/null || return 1
+    ln -sfn "$previous" "$root/active.next" && mv -Tf "$root/active.next" "$root/active"
+  else
+    compose "$candidate" down --remove-orphans >/dev/null || return 1
+    if [ -L "$root/active" ] && [ "$(readlink -f "$root/active")" = "$candidate" ]; then rm "$root/active"; fi
+  fi
+}
+verify_assets() {
+  local html asset
+  html=$(curl -fsS --max-time 10 http://127.0.0.1:3200/en/shipment-operator) || return 1
+  asset=$(printf '%s' "$html" | grep -oE 'https://dev\.terrahorse\.lt/shipment-operator/assets/_nuxt/[A-Za-z0-9_.-]+\.js' | sed -n '1p') || return 1
+  [ -n "$asset" ] || return 1
+  curl -fsS --max-time 10 "http://127.0.0.1:3210${asset#https://dev.terrahorse.lt}" >/dev/null
 }
 compose "$candidate" config --quiet
-compose "$candidate" pull >/dev/null
-previous=
+compose "$candidate" pull shipment-operator >/dev/null
 if [ -L "$root/active" ]; then previous=$(readlink -f "$root/active"); fi
 if [ -n "$previous" ]; then
   case "$previous" in "$root/releases/"*) ;; *) fail 'unexpected active shipment directory' ;; esac
+  # Legacy candidates must also serve their own assets when used for rollback.
+  write_asset_overlay "$previous"
+  if ! grep -q '^SHIPMENT_ASSET_PROXY_IMAGE=' "$previous/.env"; then
+    printf "SHIPMENT_ASSET_PROXY_IMAGE='%s'\n" "$asset_image" >> "$previous/.env"
+  fi
   if cmp -s "$previous/.env" "$candidate/.env" &&
     cmp -s "$previous/compose.shipment-operator.yml" "$candidate/compose.shipment-operator.yml" &&
-    cmp -s "$previous/compose.shipment-operator.ec2.yml" "$candidate/compose.shipment-operator.ec2.yml"; then
-    compose "$previous" up -d --wait --wait-timeout 60 >/dev/null
+    cmp -s "$previous/compose.shipment-operator.ec2.yml" "$candidate/compose.shipment-operator.ec2.yml" &&
+    cmp -s "$previous/compose.shipment-assets.yml" "$candidate/compose.shipment-assets.yml"; then
+    compose "$previous" up -d --remove-orphans --wait --wait-timeout 60 >/dev/null
+    verify_assets || fail 'active shipment asset route failed health'
     exit 0
   fi
 fi
 retain=true
-if compose "$candidate" up -d --wait --wait-timeout 60 >/dev/null &&
-  curl -fsS --max-time 10 http://127.0.0.1:3200/health | jq -e --arg version "$version" '.status == "ok" and .service == "shipment-operator" and .version == $version' >/dev/null; then
+candidate_started=true
+if compose "$candidate" up -d --remove-orphans --wait --wait-timeout 60 >/dev/null &&
+  curl -fsS --max-time 10 http://127.0.0.1:3200/health | jq -e --arg version "$version" '.status == "ok" and .service == "shipment-operator" and .version == $version' >/dev/null &&
+  verify_assets; then
   ln -sfn "$candidate" "$root/active.next"
   mv -Tf "$root/active.next" "$root/active"
+  candidate_started=false
   echo 'Shipment dev runtime healthy; booking remains disabled.'
 else
-  if [ -n "$previous" ]; then
-    compose "$previous" up -d --wait --wait-timeout 60 >/dev/null || fail 'candidate failed and previous shipment runtime could not be restored'
-  else
-    compose "$candidate" down >/dev/null || fail 'candidate teardown failed'
-  fi
-  retain=false
-  fail 'candidate failed health; previous shipment runtime restored or candidate removed'
+  fail 'candidate failed health; restoring previous runtime or removing first candidate'
 fi

@@ -12,7 +12,7 @@ ACCOUNT = "462432303731"
 REGISTRY = f"{ACCOUNT}.dkr.ecr.eu-north-1.amazonaws.com"
 
 MOCK = r'''#!/usr/bin/env python3
-import json,os,pathlib,sys
+import json,os,pathlib,sys,signal
 a=sys.argv[1:]; name=pathlib.Path(sys.argv[0]).name
 root=pathlib.Path(os.environ['FIXTURE']); s=json.loads((root/'state').read_text())
 with (root/'calls').open('a') as f: f.write(json.dumps([name,*a])+'\n')
@@ -32,10 +32,16 @@ elif name=='curl':
   if a[-1].endswith('/api/token'): out('metadata-token')
   elif a[-1].endswith('/instance-id'): out('i-dev')
   elif s.get('health_failure'): sys.exit(1)
+  elif '/en/shipment-operator' in a[-1]: out('<script src="https://dev.terrahorse.lt/shipment-operator/assets/_nuxt/widget.js"></script>')
+  elif '/assets/_nuxt/' in a[-1]:
+    if s.get('asset_failure'): sys.exit(1)
+    out('public widget asset')
   else: out({'status':'ok','service':'shipment-operator','version':'test-release'})
 elif name=='openssl': pass
 elif name=='docker':
   if a[:2]==['network','inspect']: out([{'Driver':'bridge','Scope':'local','Containers':{x:{} for x in s['members']}}])
+  elif a[0]=='ps': out('a'*12)
+  elif a[0]=='inspect' and option('--format')=='{{.Image}}': out('sha256:'+'c'*64)
   elif a[0]=='inspect': out(s['members'][a[-1]])
   elif a[:2]==['image','inspect']: out(s.get('contract','1'))
   elif a[0]=='create': out('release-container')
@@ -45,6 +51,7 @@ elif name=='docker':
     p.write_text(json.dumps(s['release']) if filename=='release.json' else 'services: {}\n')
   elif a[0]=='compose' and 'up' in a:
     countfile=root/'ups'; count=int(countfile.read_text())+1 if countfile.exists() else 1; countfile.write_text(str(count))
+    if count==s.get('signal_on_up'): os.kill(os.getppid(),signal.SIGTERM)
     if count==1 and s.get('startup_failure'): sys.exit(1)
 '''
 
@@ -128,6 +135,47 @@ class ReconcileTest(unittest.TestCase):
         self.assertFalse((self.runtime / "active").exists())
         self.assertEqual(list((self.runtime / "releases").iterdir()), [])
 
+    def test_termination_during_first_start_tears_down(self):
+        self.state["signal_on_up"] = 1
+        result, calls = self.run_reconcile()
+        self.assertEqual(result.returncode, 143)
+        self.assertTrue(any(call[0] == "docker" and "down" in call and "--remove-orphans" in call for call in calls))
+        self.assertFalse((self.runtime / "active").exists())
+        self.assertEqual(list((self.runtime / "releases").iterdir()), [])
+
+    def test_termination_during_upgrade_restores_previous(self):
+        result, _ = self.run_reconcile()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        active = (self.runtime / "active").resolve()
+        self.state["release"]["release"] = "new-release"
+        self.state["signal_on_up"] = 2
+        result, calls = self.run_reconcile()
+        self.assertEqual(result.returncode, 143)
+        self.assertEqual((self.runtime / "active").resolve(), active)
+        self.assertIn(str(active / ".env"), calls[-1])
+        self.assertIn("--remove-orphans", calls[-1])
+        self.assertEqual(len(list((self.runtime / "releases").iterdir())), 1)
+
+    def test_asset_overlay_is_kept_with_legacy_rollback(self):
+        result, _ = self.run_reconcile()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        active = (self.runtime / "active").resolve()
+        overlay = active / "compose.shipment-assets.yml"
+        overlay.unlink()
+        self.state["release"]["release"] = "new-release"
+        self.state["health_failure"] = True
+        result, calls = self.run_reconcile()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("NUXT_APP_CDN_URL: https://dev.terrahorse.lt/shipment-operator/assets", overlay.read_text())
+        self.assertIn(str(overlay), calls[-1])
+
+    def test_asset_rule_preserves_storefront_assets_graphql_and_media(self):
+        source = SOURCE.parent.parent.joinpath("aws/cloudflare.tf").read_text()
+        pattern = re.findall(r'path\s*=\s*"(\^/[^"\n]+)"', source)[0]
+        self.assertIsNotNone(re.fullmatch(pattern, "/shipment-operator/assets/_nuxt/widget.js"))
+        for path in ("/_nuxt/widget.js", "/graphql/", "/media/product.jpg", "/api/shipment-operator/order"):
+            self.assertIsNone(re.fullmatch(pattern, path))
+
     def test_unowned_or_mutable_release_refuses_pull(self):
         self.state["status"]["release"] = "unrelated.invalid/release:latest"
         result, calls = self.run_reconcile()
@@ -142,7 +190,7 @@ class ReconcileTest(unittest.TestCase):
 
     def test_dashboard_path_rule_preserves_existing_routes(self):
         source = SOURCE.parent.parent.joinpath("aws/cloudflare.tf").read_text()
-        pattern = re.search(r'path\s*=\s*"(\^/[^"\n]+)"', source).group(1)
+        pattern = re.findall(r'path\s*=\s*"(\^/[^"\n]+)"', source)[1]
         for path in ("/en/shipment-operator", "/api/shipment-operator/manifest"):
             self.assertIsNotNone(re.fullmatch(pattern, path))
         for path in ("/dashboard/orders", "/dashboard/assets/index.js", "/_nuxt/widget.js", "/graphql/", "/api/payment/start", "/health"):
@@ -169,6 +217,17 @@ class ReconcileTest(unittest.TestCase):
         self.assertEqual(calls[-1][0], "docker")
         self.assertIn(str(active / ".env"), calls[-1])
         self.assertEqual(len(list((self.runtime / "releases").iterdir())), 1)
+
+    def test_failed_asset_probe_restores_previous(self):
+        result, _ = self.run_reconcile()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        active = (self.runtime / "active").resolve()
+        self.state["release"]["release"] = "new-release"
+        self.state["asset_failure"] = True
+        result, calls = self.run_reconcile()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual((self.runtime / "active").resolve(), active)
+        self.assertIn(str(active / ".env"), calls[-1])
 
 
 if __name__ == "__main__":
