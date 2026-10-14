@@ -69,6 +69,13 @@ resource "cloudflare_zero_trust_tunnel_cloudflared_config" "terrahorse" {
 
   config = {
     ingress = concat(
+      each.key == "dev" ? [
+        {
+          hostname = each.value.hostname
+          path     = "^/(api/shipment-operator(/.*)?|((en|lt)/)?shipment-operator(/.*)?)$"
+          service  = "http://localhost:3200"
+        },
+      ] : [],
       [
         {
           hostname = each.value.hostname

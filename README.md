@@ -3,6 +3,11 @@
 The [local pull-request runners](docs/pr-runner.md) run the web repository's
 credential-free PR checks on a developer Mac.
 
+## Dev shipment preparation
+
+The [dev shipment guide](docs/shipment-dev.md) covers the Saleor order widget,
+existing Dashboard hostname routing, isolated runtime, installation and recovery.
+
 ## E2E infrastructure
 
 This repository owns the disposable `terrahorse-web-e2e` runtime behind

@@ -11,6 +11,7 @@ jobs:
           sh -n scripts/*.sh
           for file in scripts/*.mjs; do node --check "$file"; done
           python3 -c 'import ast, pathlib; ast.parse(pathlib.Path("scripts/saleor-e2e.py").read_text())'
+          python3 scripts/reconcile-shipment-dev.test.py
           test ! -e scripts/verify-e2e-saleor.mjs
           test ! -e scripts/install-e2e-payment-webhook.mjs
           test ! -e scripts/ensure-e2e-saleor.mjs
