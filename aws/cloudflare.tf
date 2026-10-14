@@ -69,6 +69,18 @@ resource "cloudflare_zero_trust_tunnel_cloudflared_config" "terrahorse" {
 
   config = {
     ingress = concat(
+      each.key == "dev" ? [
+        {
+          hostname = each.value.hostname
+          path     = "^/shipment-operator/assets/_nuxt/.*$"
+          service  = "http://localhost:3210"
+        },
+        {
+          hostname = each.value.hostname
+          path     = "^/(api/shipment-operator(/.*)?|((en|lt)/)?shipment-operator(/.*)?)$"
+          service  = "http://localhost:3200"
+        },
+      ] : [],
       [
         {
           hostname = each.value.hostname
@@ -105,6 +117,7 @@ resource "cloudflare_zero_trust_tunnel_cloudflared_config" "terrahorse" {
     )
   }
 }
+
 
 resource "cloudflare_dns_record" "terrahorse-tunnel" {
   for_each = local.cloudflare_tunnels

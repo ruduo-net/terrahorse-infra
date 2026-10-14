@@ -1,0 +1,10 @@
+[Unit]
+Description=Reconcile the dev shipment runtime after storefront releases
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=2min
+Unit=terrahorse-shipment-operator.service
+
+[Install]
+WantedBy=timers.target
