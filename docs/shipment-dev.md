@@ -54,6 +54,8 @@ Cleanup ignores subsequent TERM/INT, so a timeout during an existing rollback
 cannot abandon the EXIT trap. Failed restoration stops the exact shipment project
 and retains private diagnostic inputs. A non-symlink or broken active path is refused
 before Compose can replace anything.
+The active release must also have nonempty environment and base Compose files and
+pass Compose configuration validation before either runtime can be started.
 All startup and rollback operations remove orphans only within the shipment project.
 Unchanged successful inputs restore the existing service without accumulating
 candidate directories. Failed rollback retains private candidate inputs for diagnosis.

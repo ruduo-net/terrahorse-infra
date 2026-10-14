@@ -50,6 +50,8 @@ elif name=='docker':
     filename=a[1].split('/')[-1]
     p=pathlib.Path(a[2])
     p.write_text(json.dumps(s['release']) if filename=='release.json' else 'services: {}\n')
+  elif a[0]=='compose' and 'config' in a:
+    if s.get('previous_config_failure') and pathlib.Path(option('--env-file')).parent==(root/'runtime'/'active').resolve(): sys.exit(1)
   elif a[0]=='compose' and 'up' in a:
     countfile=root/'ups'; count=int(countfile.read_text())+1 if countfile.exists() else 1; countfile.write_text(str(count))
     if count==s.get('signal_on_up'): os.kill(os.getppid(),signal.SIGTERM)
@@ -144,6 +146,46 @@ class ReconcileTest(unittest.TestCase):
         self.assertIn("down", calls[-1])
         self.assertIn("--remove-orphans", calls[-1])
         self.assertEqual(len(list((self.runtime / "releases").iterdir())), 2)
+
+    def test_incomplete_active_inputs_refuse_replacement(self):
+        result, _ = self.run_reconcile()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        active = (self.runtime / "active").resolve()
+        self.state["release"]["release"] = "new-release"
+        for filename in (".env", "compose.shipment-operator.yml", "compose.shipment-operator.ec2.yml"):
+            path = active / filename
+            original = path.read_text()
+            for missing in (True, False):
+                with self.subTest(filename=filename, missing=missing):
+                    if missing:
+                        path.unlink()
+                    else:
+                        path.write_text("")
+                    result, calls = self.run_reconcile()
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn("inputs are missing or empty", result.stderr)
+                    self.assertEqual((self.runtime / "active").resolve(), active)
+                    self.assertEqual(len([call for call in calls if call[0] == "docker" and "up" in call]), 1)
+                    self.assertFalse(any(call[0] == "docker" and "down" in call for call in calls))
+                    self.assertEqual(len(list((self.runtime / "releases").iterdir())), 1)
+                    self.assertEqual(path.exists(), not missing)
+                    if not missing:
+                        self.assertEqual(path.read_text(), "")
+                    path.write_text(original)
+
+    def test_invalid_active_compose_refuses_replacement(self):
+        result, _ = self.run_reconcile()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        active = (self.runtime / "active").resolve()
+        self.state["release"]["release"] = "new-release"
+        self.state["previous_config_failure"] = True
+        result, calls = self.run_reconcile()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Compose configuration is invalid", result.stderr)
+        self.assertEqual((self.runtime / "active").resolve(), active)
+        self.assertEqual(len([call for call in calls if call[0] == "docker" and "up" in call]), 1)
+        self.assertFalse(any(call[0] == "docker" and "down" in call for call in calls))
+        self.assertEqual(len(list((self.runtime / "releases").iterdir())), 1)
 
     def test_wrong_account_and_host_fail_before_docker(self):
         for field in ("account", "host"):

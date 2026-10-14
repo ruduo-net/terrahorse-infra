@@ -221,11 +221,15 @@ compose "$candidate" pull shipment-operator >/dev/null
 if [ -L "$root/active" ]; then previous=$(readlink -f "$root/active"); fi
 if [ -n "$previous" ]; then
   case "$previous" in "$root/releases/"*) ;; *) fail 'unexpected active shipment directory' ;; esac
+  for file in .env compose.shipment-operator.yml compose.shipment-operator.ec2.yml; do
+    [ -f "$previous/$file" ] && [ -s "$previous/$file" ] || fail 'active shipment release inputs are missing or empty'
+  done
   # Legacy candidates must also serve their own assets when used for rollback.
   write_asset_overlay "$previous"
   if ! grep -q '^SHIPMENT_ASSET_PROXY_IMAGE=' "$previous/.env"; then
     printf "SHIPMENT_ASSET_PROXY_IMAGE='%s'\n" "$asset_image" >> "$previous/.env"
   fi
+  compose "$previous" config --quiet || fail 'active shipment Compose configuration is invalid'
   if cmp -s "$previous/.env" "$candidate/.env" &&
     cmp -s "$previous/compose.shipment-operator.yml" "$candidate/compose.shipment-operator.yml" &&
     cmp -s "$previous/compose.shipment-operator.ec2.yml" "$candidate/compose.shipment-operator.ec2.yml" &&
