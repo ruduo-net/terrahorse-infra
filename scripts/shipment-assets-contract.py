@@ -68,7 +68,7 @@ def main():
                         if body.get("version") == version:
                             assert body["authorization"] == body["cookie"] == "", body
                             return
-                    except (urllib.error.URLError, json.JSONDecodeError):
+                    except (OSError, json.JSONDecodeError):
                         pass
                     time.sleep(0.2)
                 raise AssertionError("Asset proxy did not follow " + version)
@@ -106,7 +106,9 @@ def main():
     finally:
         for name in reversed(containers):
             subprocess.run(["docker", "rm", "-f", name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        subprocess.run(["docker", "network", "rm", network], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        cleanup = subprocess.run(["docker", "network", "rm", network], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if cleanup.returncode:
+            raise RuntimeError("Temporary asset contract network cleanup failed")
 
 
 if __name__ == "__main__":
