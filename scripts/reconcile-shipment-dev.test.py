@@ -39,7 +39,8 @@ elif name=='curl':
   else: out({'status':'ok','service':'shipment-operator','version':'test-release'})
 elif name=='openssl': pass
 elif name=='docker':
-  if a[:2]==['network','inspect']: out([{'Driver':'bridge','Scope':'local','Containers':{x:{} for x in s['members']}}])
+  if a[0]=='login': sys.stdin.read()
+  elif a[:2]==['network','inspect']: out([{'Driver':'bridge','Scope':'local','Containers':{x:{} for x in s['members']}}])
   elif a[0]=='ps': out('a'*12)
   elif a[0]=='inspect' and option('--format')=='{{.Image}}': out('sha256:'+'c'*64)
   elif a[0]=='inspect': out(s['members'][a[-1]])
