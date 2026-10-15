@@ -29,6 +29,15 @@ def main():
             proxy_config = folder / "proxy.conf"
             proxy_config.write_text(config)
             proxy_config.chmod(0o644)
+            overlay = folder / "assets.yml"
+            overlay.write_text(re.search(r"<<'COMPOSE'\n(.*?)\nCOMPOSE", source, re.S).group(1))
+            base_compose = folder / "base.yml"
+            base_compose.write_text("services:\n  shipment-operator:\n    image: " + image + "\n")
+            environment = folder / "proxy.env"
+            environment.write_text("SHIPMENT_ASSET_PROXY_IMAGE=" + image + "\n")
+            services = json.loads(docker("compose", "--project-name", prefix, "--env-file", str(environment),
+                "-f", str(base_compose), "-f", str(overlay), "config", "--format", "json"))["services"]
+            tmpfs_args = [part for mount in services["shipment-assets"]["tmpfs"] for part in ("--tmpfs", mount)]
 
             def upstream(version):
                 name = prefix + "-" + version
@@ -52,7 +61,7 @@ def main():
             proxy = prefix + "-proxy"
             containers.append(proxy)
             docker("run", "-d", "--name", proxy, "--network", network, "--user", "101:101",
-                "--read-only", "--cap-drop", "ALL", "--tmpfs", "/tmp", "-p", "127.0.0.1::8080",
+                "--read-only", "--cap-drop", "ALL", *tmpfs_args, "-p", "127.0.0.1::8080",
                 "-v", str(proxy_config) + ":/etc/nginx/proof.conf:ro", "--entrypoint", "nginx", image,
                 "-c", "/etc/nginx/proof.conf", "-g", "daemon off;")
             port = docker("port", proxy, "8080/tcp").split(":")[-1]
@@ -98,7 +107,7 @@ def main():
             hold_address("candidate")
             upstream("rollback")
             asset("rollback")
-            print("Shipment asset contract passed: GET/HEAD, credential stripping, route isolation and replacement/rollback DNS.")
+            print("Shipment asset contract passed: generated Compose tmpfs, GET/HEAD, credential stripping, route isolation and replacement/rollback DNS.")
     except Exception:
         for name in containers:
             subprocess.run(["docker", "logs", name])
