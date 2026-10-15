@@ -138,7 +138,7 @@ services:
     pids_limit: 32
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
-    tmpfs: [/tmp:size=8m,mode=1777,nosuid,nodev,noexec]
+    tmpfs: ["/tmp:size=8m,mode=1777,nosuid,nodev,noexec"]
     volumes:
       - ./shipment-assets.conf:/etc/nginx/shipment-assets.conf:ro
     ports:
