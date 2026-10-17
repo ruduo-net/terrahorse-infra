@@ -36,6 +36,11 @@ version, without a new hostname or CORS permission. Infrastructure supplies the
 third `compose.shipment-assets.yml` overlay and proxy configuration, including for
 legacy rollback candidates. A module referenced by the real rendered page is
 probed through the proxy before promotion and before accepting a restored runtime.
+The probe accepts both legacy flat module paths and release-versioned paths under
+that exact asset prefix. A healthy versioned release must not be rolled back merely
+because its module lives in a release directory; missing modules still fail health
+and restore the previous runtime. Shipment reconciliation does not restart Cloudflared
+or the main storefront stack.
 
 Dev ASG uses `$Latest` for future instances without automatic instance refresh;
 bootstrap changes do not replace the active host during a full Terraform apply.

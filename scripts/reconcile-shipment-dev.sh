@@ -212,7 +212,7 @@ restore_runtime() {
 verify_assets() {
   local html asset
   html=$(curl -fsS --max-time 10 http://127.0.0.1:3200/en/shipment-operator) || return 1
-  asset=$(printf '%s' "$html" | grep -oE 'https://dev\.terrahorse\.lt/shipment-operator/assets/_nuxt/[A-Za-z0-9_.-]+\.js' | sed -n '1p') || return 1
+  asset=$(printf '%s' "$html" | grep -oE 'https://dev\.terrahorse\.lt/shipment-operator/assets/_nuxt/([A-Za-z0-9_-][A-Za-z0-9_.-]*/)?[A-Za-z0-9_-][A-Za-z0-9_.-]*\.js' | sed -n '1p') || return 1
   [ -n "$asset" ] || return 1
   curl -fsS --max-time 10 "http://127.0.0.1:3210${asset#https://dev.terrahorse.lt}" >/dev/null
 }

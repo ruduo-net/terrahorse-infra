@@ -32,11 +32,13 @@ elif name=='curl':
   if a[-1].endswith('/api/token'): out('metadata-token')
   elif a[-1].endswith('/instance-id'): out('i-dev')
   elif s.get('health_failure') and a[-1].endswith('/health'): sys.exit(1)
-  elif '/en/shipment-operator' in a[-1]: out('<script src="https://dev.terrahorse.lt/shipment-operator/assets/_nuxt/widget.js"></script>')
+  elif '/en/shipment-operator' in a[-1]:
+    path=s.get('asset_paths',{}).get((root/'ups').read_text(),'widget.js')
+    out(s.get('operator_html','<script src="https://dev.terrahorse.lt/shipment-operator/assets/_nuxt/'+path+'"></script>'))
   elif '/assets/_nuxt/' in a[-1]:
     if s.get('asset_failure') or (s.get('candidate_asset_failure') and (root/'ups').read_text()=='2'): sys.exit(1)
     out('public widget asset')
-  else: out({'status':'ok','service':'shipment-operator','version':'test-release'})
+  else: out({'status':'ok','service':'shipment-operator','version':s['release']['release']})
 elif name=='openssl': pass
 elif name=='docker':
   if a[0]=='login': sys.stdin.read()
@@ -109,6 +111,50 @@ class ReconcileTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual((self.runtime / "active").resolve(), active)
         self.assertEqual(len(list((self.runtime / "releases").iterdir())), 1)
+
+    def test_versioned_asset_upgrade_and_unchanged_reconcile(self):
+        result, _ = self.run_reconcile()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        previous = (self.runtime / "active").resolve()
+        self.state["release"]["release"] = "release-new"
+        self.state["asset_paths"] = {"2": "release-new/widget.js", "3": "release-new/widget.js"}
+        result, calls = self.run_reconcile()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        active = (self.runtime / "active").resolve()
+        self.assertNotEqual(active, previous)
+        self.assertTrue(calls[-1][-1].endswith("/assets/_nuxt/release-new/widget.js"))
+        result, _ = self.run_reconcile()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.runtime / "active").resolve(), active)
+        self.assertEqual(len(list((self.runtime / "releases").iterdir())), 2)
+
+    def test_failed_versioned_asset_restores_legacy_runtime(self):
+        result, _ = self.run_reconcile()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        previous = (self.runtime / "active").resolve()
+        self.state["release"]["release"] = "release-new"
+        self.state["asset_paths"] = {"2": "release-new/widget.js"}
+        self.state["candidate_asset_failure"] = True
+        result, calls = self.run_reconcile()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual((self.runtime / "active").resolve(), previous)
+        self.assertTrue(any(call[-1].endswith("/assets/_nuxt/release-new/widget.js") for call in calls))
+        self.assertTrue(calls[-1][-1].endswith("/assets/_nuxt/widget.js"))
+
+    def test_unsafe_asset_paths_and_foreign_origins_fail_closed(self):
+        for asset in [
+            "https://other.invalid/shipment-operator/assets/_nuxt/widget.js",
+            "https://dev.terrahorse.lt/_nuxt/release-new/widget.js",
+            "https://dev.terrahorse.lt/shipment-operator/assets/_nuxt/../widget.js",
+            "https://dev.terrahorse.lt/shipment-operator/assets/_nuxt/release-new/../widget.js",
+            "https://dev.terrahorse.lt/shipment-operator/assets/_nuxt/release-new/extra/widget.js",
+        ]:
+            with self.subTest(asset=asset):
+                self.state["operator_html"] = '<script src="' + asset + '"></script>'
+                result, calls = self.run_reconcile()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(any(call[0] == "curl" and "/assets/_nuxt/" in call[-1] for call in calls))
+                self.assertFalse((self.runtime / "active").exists())
 
     def test_unchanged_startup_failure_restores_previous(self):
         result, _ = self.run_reconcile()
