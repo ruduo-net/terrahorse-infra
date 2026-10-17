@@ -39,13 +39,13 @@ def main():
                 "-f", str(base_compose), "-f", str(overlay), "config", "--format", "json"))["services"]
             tmpfs_args = [part for mount in services["shipment-assets"]["tmpfs"] for part in ("--tmpfs", mount)]
 
-            def upstream(version):
+            def upstream(version, asset_path="widget.js"):
                 name = prefix + "-" + version
                 conf = folder / (version + ".conf")
                 conf.write_text('pid /tmp/nginx.pid; events {} http { access_log off; '
                     'client_body_temp_path /tmp/client; proxy_temp_path /tmp/proxy; '
                     'fastcgi_temp_path /tmp/fastcgi; uwsgi_temp_path /tmp/uwsgi; scgi_temp_path /tmp/scgi; server { listen 3000; '
-                    'location = /_nuxt/widget.js { default_type application/json; return 200 '
+                    'location = /_nuxt/' + asset_path + ' { default_type application/json; return 200 '
                     '\'{"version":"' + version + '","authorization":"$http_authorization","cookie":"$http_cookie"}\'; } '
                     'location / { return 404; } } }')
                 conf.chmod(0o644)
@@ -68,10 +68,10 @@ def main():
             base = "http://127.0.0.1:" + port
             path = "/shipment-operator/assets/_nuxt/widget.js"
 
-            def asset(version):
+            def asset(version, asset_path="widget.js"):
                 for _ in range(30):
                     try:
-                        request = urllib.request.Request(base + path, headers={"Authorization": "Bearer synthetic", "Cookie": "synthetic=1"})
+                        request = urllib.request.Request(base + "/shipment-operator/assets/_nuxt/" + asset_path, headers={"Authorization": "Bearer synthetic", "Cookie": "synthetic=1"})
                         with urllib.request.urlopen(request, timeout=2) as response:
                             body = json.load(response)
                         if body.get("version") == version:
@@ -99,15 +99,18 @@ def main():
                 containers.append(name)
                 docker("run", "-d", "--name", name, "--network", network, "--entrypoint", "/bin/sh", image, "-c", "exec tail -f /dev/null")
             hold_address("previous")
-            second = upstream("candidate")
+            versioned_path = "release-candidate/widget.js"
+            second = upstream("candidate", versioned_path)
             second_ip = json.loads(docker("inspect", "--format", "{{json .NetworkSettings.Networks}}", second))[network]["IPAddress"]
             assert second_ip != first_ip, "The replacement must exercise a different Docker IP"
-            asset("candidate")
+            asset("candidate", versioned_path)
+            with urllib.request.urlopen(urllib.request.Request(base + "/shipment-operator/assets/_nuxt/" + versioned_path, method="HEAD"), timeout=2) as response:
+                assert response.status == 200
             docker("rm", "-f", second)
             hold_address("candidate")
             upstream("rollback")
             asset("rollback")
-            print("Shipment asset contract passed: generated Compose tmpfs, GET/HEAD, credential stripping, route isolation and replacement/rollback DNS.")
+            print("Shipment asset contract passed: generated Compose tmpfs, legacy/versioned GET/HEAD, credential stripping, route isolation and replacement/rollback DNS.")
     except Exception:
         for name in containers:
             subprocess.run(["docker", "logs", name])
