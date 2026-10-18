@@ -49,15 +49,13 @@ export E2E_INFRA_ROOT="$root" E2E_RUN_STATE_DIR="$state" E2E_STOREFRONT_WORKTREE
 
 database_password=$(openssl rand -hex 32)
 saleor_secret=$(openssl rand -hex 64)
-payment_webhook_secret=$(openssl rand -hex 32)
 printf '%s\n' \
   "APP_VERSION=$revision" \
   "E2E_INFRA_ROOT=$root" \
   "E2E_RUN_STATE_DIR=$state" \
   "E2E_STOREFRONT_WORKTREE=$web_root" \
   "SALEOR_DATABASE_PASSWORD=$database_password" \
-  "SALEOR_SECRET_KEY=$saleor_secret" \
-  "SALEOR_PAYMENT_WEBHOOK_SECRET=$payment_webhook_secret" > "$state/saleor.env"
+  "SALEOR_SECRET_KEY=$saleor_secret" > "$state/saleor.env"
 printf '%s\n' "$revision" "$web_root" "$runtime_env" "$secret_env" "$config" "$credentials" > "$state/owner"
 chmod 600 "$state/saleor.env" "$state/owner"
 set -a

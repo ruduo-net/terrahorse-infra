@@ -45,8 +45,6 @@ services:
     environment:
       <<: *saleor-environment
       E2E_RUN_STATE_DIR: /e2e/run
-      E2E_PAYMENT_OPERATION: /e2e/payment-ownership.graphql
-      SALEOR_PAYMENT_WEBHOOK_SECRET: ${SALEOR_PAYMENT_WEBHOOK_SECRET:?SALEOR_PAYMENT_WEBHOOK_SECRET is required}
     depends_on:
       saleor-db:
         condition: service_healthy
@@ -54,7 +52,6 @@ services:
         condition: service_healthy
     volumes:
       - ${E2E_INFRA_ROOT:?E2E_INFRA_ROOT is required}/scripts/saleor-e2e.py:/e2e/saleor-e2e.py:ro
-      - ${E2E_STOREFRONT_WORKTREE:?E2E_STOREFRONT_WORKTREE is required}/server/data/saleor/graphql/operations/payment-ownership.graphql:/e2e/payment-ownership.graphql:ro
       - ${E2E_RUN_STATE_DIR:?E2E_RUN_STATE_DIR is required}:/e2e/run
     restart: 'no'
 
@@ -108,7 +105,6 @@ services:
     command: [python, /e2e/saleor-e2e.py, verify]
     environment:
       <<: *saleor-environment
-      E2E_PAYMENT_OPERATION: /e2e/payment-ownership.graphql
       E2E_RUNTIME_ENV_FILE: /e2e/run/runtime.env
       SALEOR_E2E_API_URL: http://saleor-api:8000/graphql/
     depends_on:
@@ -116,7 +112,6 @@ services:
         condition: service_healthy
     volumes:
       - ${E2E_INFRA_ROOT:?E2E_INFRA_ROOT is required}/scripts/saleor-e2e.py:/e2e/saleor-e2e.py:ro
-      - ${E2E_STOREFRONT_WORKTREE:?E2E_STOREFRONT_WORKTREE is required}/server/data/saleor/graphql/operations/payment-ownership.graphql:/e2e/payment-ownership.graphql:ro
       - ${E2E_RUN_STATE_DIR:?E2E_RUN_STATE_DIR is required}:/e2e/run:ro
     restart: 'no'
 

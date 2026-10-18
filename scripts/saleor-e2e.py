@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import datetime
+import hashlib
 import io
 import json
 import os
@@ -15,7 +16,6 @@ EXPECTED_PERMISSIONS = {
 }
 PRODUCT_SLUG = "terrahorse-e2e-test-product"
 SKU = "TH-E2E-TEST-001"
-WEBHOOK_NAME = "TerraHorse transaction initialize"
 
 
 def required(name):
@@ -23,13 +23,6 @@ def required(name):
     if not value:
         raise RuntimeError(f"{name}-required")
     return value
-
-
-def payment_subscription():
-    source = Path(required("E2E_PAYMENT_OPERATION")).read_text()
-    start = source.index("fragment SaleorTransactionInitializeSessionEvent")
-    end = source.index("mutation SaleorPaymentOwnershipPrivateMetadataUpdate")
-    return source[start:end].strip()
 
 
 def write_runtime(values):
@@ -53,6 +46,7 @@ def seed():
     from saleor.account.models import Address
     from saleor.app.models import App
     from saleor.channel.models import Channel
+    from saleor.page.models import Page, PageType
     from saleor.product import ProductTypeKind
     from saleor.product.models import (
         Category,
@@ -66,8 +60,6 @@ def seed():
     from saleor.shipping.models import ShippingMethodType
     from saleor.tax.models import TaxConfiguration
     from saleor.warehouse.models import Stock, Warehouse
-    from saleor.webhook.event_types import WebhookEventSyncType
-    from saleor.webhook.models import Webhook, WebhookEvent
 
     with transaction.atomic():
         migration_defaults = [
@@ -151,6 +143,23 @@ def seed():
         )
         Stock.objects.create(product_variant=variant, warehouse=warehouse, quantity=10)
 
+        terms_content = {"blocks": [{"type": "paragraph", "data": {
+            "text": "Disposable sandbox terms for the isolated E2E checkout only."
+        }}]}
+        terms_type = PageType.objects.create(name="E2E legal document", slug="legal-document")
+        Page.objects.create(
+            page_type=terms_type, title="E2E sandbox terms", slug="terms-and-conditions",
+            content=terms_content, is_published=True, published_at=timezone.now(),
+            metadata={
+                "terrahorse.legal.version": "e2e-v1",
+                "terrahorse.legal.effective-date": "2026-01-01",
+                "terrahorse.legal.status": "draft",
+                "terrahorse.legal.source-sha.en": hashlib.sha256(
+                    json.dumps(terms_content, sort_keys=True).encode()
+                ).hexdigest(),
+            },
+        )
+
         output = io.StringIO()
         call_command(
             "create_app", "TerraHorse E2E Runtime", identifier="terrahorse-e2e",
@@ -158,18 +167,12 @@ def seed():
         )
         token = json.loads(output.getvalue())["auth_token"]
         app = App.objects.get(identifier="terrahorse-e2e")
-        webhook = Webhook.objects.create(
-            app=app, name=WEBHOOK_NAME, is_active=True,
-            target_url="https://e2e.terrahorse.lt/api/payments/saleor/initialize",
-            secret_key=required("SALEOR_PAYMENT_WEBHOOK_SECRET"),
-            subscription_query=payment_subscription(), custom_headers={},
-        )
-        WebhookEvent.objects.create(
-            webhook=webhook, event_type=WebhookEventSyncType.TRANSACTION_INITIALIZE_SESSION,
-        )
 
     write_runtime({
         "SALEOR_API_URL": "http://saleor-api:8000/graphql/",
+        "SALEOR_CHANNEL": "terrahorse-e2e",
+        "SALEOR_STOCK_AVAILABILITY_MODE": "channel-aggregate",
+        "SALEOR_STOCK_COUNTRY_CODE": "LT",
         "SALEOR_COMMERCE_APP_TOKEN": token,
         "SALEOR_PAYMENT_APP_ID": graphene.Node.to_global_id("App", app.pk),
         "SALEOR_PAYMENT_GATEWAY_ID": app.identifier,
@@ -208,10 +211,9 @@ def mutation_result(data, key):
 
 
 def verify():
-    subscription = " ".join(payment_subscription().split())
     data, runtime = graphql("""query($slug:String!,$channel:String!){
-      shop{version} app{id identifier name isActive permissions{code} webhooks{
-        name isActive targetUrl customHeaders subscriptionQuery syncEvents{eventType} asyncEvents{eventType}}}
+      shop{version} app{id identifier name isActive permissions{code} webhooks{id}}
+      page(slug:"terms-and-conditions"){slug isPublished pageType{slug} metadata{key value}}
       product(slug:$slug,channel:$channel){slug category{slug metadata{key value}}
         productType{slug hasVariants isShippingRequired} productVariants(first:2){edges{node{
           id sku weight{unit value} metadata{key value} quantityAvailable pricing{price{gross{amount currency}}}}}}}
@@ -227,21 +229,14 @@ def verify():
         or {item["code"] for item in app["permissions"]} != EXPECTED_PERMISSIONS
     ):
         raise RuntimeError("runtime-app-identity-mismatch")
-    if len(app["webhooks"]) != 1:
+    if app["webhooks"]:
         raise RuntimeError("runtime-webhook-count-mismatch")
-    webhook = app["webhooks"][0]
-    if webhook["name"] != WEBHOOK_NAME or not webhook["isActive"]:
-        raise RuntimeError("runtime-webhook-state-mismatch")
-    if webhook["targetUrl"] != "https://e2e.terrahorse.lt/api/payments/saleor/initialize":
-        raise RuntimeError("runtime-webhook-target-mismatch")
-    if webhook["customHeaders"] not in ({}, "{}", None):
-        raise RuntimeError("runtime-webhook-headers-mismatch")
-    if " ".join(webhook["subscriptionQuery"].split()) != subscription:
-        raise RuntimeError("runtime-webhook-subscription-mismatch")
-    if [event["eventType"] for event in webhook["syncEvents"]] != ["TRANSACTION_INITIALIZE_SESSION"]:
-        raise RuntimeError("runtime-webhook-sync-events-mismatch")
-    if webhook["asyncEvents"]:
-        raise RuntimeError("runtime-webhook-async-events-mismatch")
+    terms = data["page"]
+    if not terms or not terms["isPublished"] or terms["pageType"]["slug"] != "legal-document":
+        raise RuntimeError("fixture-terms-missing")
+    terms_metadata = {item["key"]: item["value"] for item in terms["metadata"]}
+    if terms_metadata.get("terrahorse.legal.version") != "e2e-v1" or terms_metadata.get("terrahorse.legal.status") != "draft":
+        raise RuntimeError("fixture-terms-metadata-mismatch")
     product = data["product"]
     variant = product["productVariants"]["edges"][0]["node"]
     metadata = {item["key"]: item["value"] for item in variant["metadata"]}
@@ -287,7 +282,7 @@ def verify():
             reread, _ = graphql("query($id:ID!){checkout(id:$id){id}}", {"id": checkout_id})
             if reread["checkout"] is not None:
                 raise RuntimeError("checkout-cleanup-reread-failed")
-    print("Private Saleor fixture, app, webhook and disposable checkout verified.")
+    print("Private Saleor fixture, app and disposable checkout verified.")
 
 
 if __name__ == "__main__":

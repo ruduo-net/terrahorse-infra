@@ -79,7 +79,7 @@ resource "aws_ebs_volume" "data" {
 locals {
   ec2_cloud_init = {
     for environment, config in local.ec2_environments : environment => "#cloud-config\n${yamlencode({
-      write_files = [
+      write_files = concat([
         {
           path        = "/etc/terrahorse/aws.env"
           owner       = "root:root"
@@ -118,10 +118,29 @@ locals {
           permissions = "0644"
           content     = file("${path.module}/cloud_init/terrahorse-reconciler.service")
         }
-      ]
-      runcmd = [
+        ], environment == "dev" ? [
+        {
+          path        = "/usr/local/sbin/terrahorse-reconcile-shipment-dev"
+          owner       = "root:root"
+          permissions = "0755"
+          content     = file("${path.module}/../scripts/reconcile-shipment-dev.sh")
+        },
+        {
+          path        = "/etc/systemd/system/terrahorse-shipment-operator.service"
+          owner       = "root:root"
+          permissions = "0644"
+          content     = file("${path.module}/cloud_init/terrahorse-shipment-operator.service")
+        },
+        {
+          path        = "/etc/systemd/system/terrahorse-shipment-operator.timer"
+          owner       = "root:root"
+          permissions = "0644"
+          content     = file("${path.module}/cloud_init/terrahorse-shipment-operator.timer")
+        }
+      ] : [])
+      runcmd = concat([
         ["/usr/local/sbin/terrahorse-bootstrap"]
-      ]
+      ], environment == "dev" ? [["systemctl", "enable", "--now", "terrahorse-shipment-operator.timer"]] : [])
     })}"
   }
 }
@@ -193,18 +212,21 @@ resource "aws_autoscaling_group" "ec2" {
   health_check_grace_period = 900
 
   launch_template {
-    id      = aws_launch_template.ec2[each.key].id
-    version = aws_launch_template.ec2[each.key].latest_version
+    id = aws_launch_template.ec2[each.key].id
+    # Dev bootstrap updates configure future hosts without replacing the current one.
+    version = each.key == "dev" ? "$Latest" : tostring(aws_launch_template.ec2[each.key].latest_version)
   }
 
-  instance_refresh {
-    strategy = "Rolling"
+  dynamic "instance_refresh" {
+    for_each = each.key == "dev" ? [] : [true]
+    content {
+      strategy = "Rolling"
 
-    preferences {
-      instance_warmup        = 900
-      min_healthy_percentage = 0
+      preferences {
+        instance_warmup        = 900
+        min_healthy_percentage = 0
+      }
     }
-
   }
 
   tag {

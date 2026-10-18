@@ -1,0 +1,13 @@
+[Unit]
+Description=TerraHorse dev shipment runtime reconciliation
+Requires=docker.service opt-terrahorse-data.mount
+After=docker.service opt-terrahorse-data.mount network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/terrahorse/aws.env
+ExecStart=/usr/local/sbin/terrahorse-reconcile-shipment-dev
+TimeoutStartSec=180
+TimeoutStopSec=120
+UMask=0077

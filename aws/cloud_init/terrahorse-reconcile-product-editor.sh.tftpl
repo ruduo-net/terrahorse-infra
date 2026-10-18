@@ -112,7 +112,7 @@ ensure_product_editor_network() {
     [ -n "$${container_id}" ] || continue
     owner="$(docker inspect --format '{{ index .Config.Labels "com.docker.compose.project" }}:{{ index .Config.Labels "com.docker.compose.service" }}' "$${container_id}")"
     case "$${owner}" in
-      terrahorse-ec2:api|terrahorse-ec2:cache|terrahorse-product-editor:product-editor) ;;
+      terrahorse-ec2:api|terrahorse-ec2:cache|terrahorse-product-editor:product-editor|terrahorse-shipment-operator:shipment-operator) ;;
       *)
         echo "Unexpected container attached to terrahorse-product-editor: $${owner}" >&2
         return 1
