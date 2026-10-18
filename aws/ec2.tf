@@ -141,6 +141,10 @@ locals {
       runcmd = concat([
         ["/usr/local/sbin/terrahorse-bootstrap"]
       ], environment == "dev" ? [["systemctl", "enable", "--now", "terrahorse-shipment-operator.timer"]] : [])
+      swap = {
+        filename = "/swapfile"
+        size     = 1073741824
+      }
     })}"
   }
 }

@@ -3,6 +3,11 @@
 The [local GitHub Actions runners](docs/pr-runner.md) run the web repository's
 credential-free PR checks and trusted deployment orchestration on a developer Mac.
 
+## Host memory
+
+Cloud-init configures a persistent 1 GiB `/swapfile` for dev and production hosts.
+Check active swap with `swapon --show`.
+
 ## Dev shipment preparation
 
 The [dev shipment guide](docs/shipment-dev.md) covers the Saleor order widget,
