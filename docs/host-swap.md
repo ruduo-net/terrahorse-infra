@@ -1,5 +1,9 @@
 # Host swap
 
+The operator explicitly extended the initial dev-only scope to production on
+2026-10-18. The shared swap setting is intentional; this does not authorize
+production activation or a Terraform apply.
+
 Both dev and production cloud-init create a 1 GiB swap file at `/swapfile` before application
 bootstrap. Cloud-init manages its root-only permissions, activation and fstab entry.
 The file uses the root EBS disk, leaving the data volume for application state.
