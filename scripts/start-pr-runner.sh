@@ -21,6 +21,7 @@ if [ "$(docker context show)" != desktop-linux ] \
   exit 1
 fi
 
+echo 'Checking runner configuration and GitHub authentication...'
 compose config --quiet
 gh auth status >/dev/null
 
@@ -33,13 +34,28 @@ preflight_runner() {
   registered_busy=$(printf '%s\n' "$registered" | cut -f2)
   registered_labels=$(printf '%s\n' "$registered" | cut -f3)
 
-  if [ "$registered_busy" = true ]; then
-    echo "$name is accepting a job; wait for it to finish before changing the runner" >&2
+  if [ -n "$registered_id" ] && [ "$registered_labels" != "$expected_label" ]; then
+    echo "$name has unexpected GitHub labels; resolve them before starting the runner" >&2
     exit 1
   fi
 
-  if [ -n "$registered_id" ] && [ "$registered_labels" != "$expected_label" ]; then
-    echo "$name has unexpected GitHub labels; resolve them before starting the runner" >&2
+  running_container=$(compose ps --status running --quiet "$service") || exit "$?"
+  if [ -n "$running_container" ]; then
+    if [ -z "$registered_id" ]; then
+      echo "$name is running locally but has no GitHub registration; resolve the mismatch explicitly" >&2
+      exit 1
+    fi
+    # Read the existing registration in place; never start a second listener or
+    # change the running container, including while it is executing a job.
+    compose exec -T -e RUNNER_PREFLIGHT_ONLY=1 -e RUNNER_EXPECTED_ID="$registered_id" \
+      -e RUNNER_NAME="$name" -e RUNNER_LABELS="$expected_label" \
+      "$service" /bin/sh /opt/actions-runner/start.sh || exit "$?"
+    echo "$name is already running; leaving its jobs untouched"
+    return 0
+  fi
+
+  if [ "$registered_busy" = true ]; then
+    echo "$name is accepting a job outside its expected local container; resolve the mismatch explicitly" >&2
     exit 1
   fi
 
@@ -103,6 +119,7 @@ if [ "$deployment_registration_needed" = 10 ]; then
   register_runner deployment-runner
 fi
 
+echo 'Starting stopped runners; existing containers will not be recreated...'
 compose up -d --no-build --no-recreate --no-deps runtime-docker
 compose up -d --no-build --no-recreate
 gh api --paginate repos/ruduo-net/terrahorse-web/actions/runners \

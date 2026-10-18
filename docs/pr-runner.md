@@ -49,7 +49,9 @@ that exit before any runner starts accepting jobs; only the named volumes
 retain the runner identities, and the long-lived containers have no token in
 their environment. Existing runner containers are not recreated while the
 script runs. Replacing an existing runner image is a separate maintenance
-operation after its jobs finish. Wait until all three runners report `online`
+operation after its jobs finish. A runner already executing a job is checked
+in place and left running, so it does not prevent stopped runners from starting.
+Wait until all three runners report `online`
 if they are initially shown as `offline`.
 
 All three runners should report `online` with their respective
