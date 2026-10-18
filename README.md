@@ -5,11 +5,8 @@ credential-free PR checks and trusted deployment orchestration on a developer Ma
 
 ## Host memory
 
-Dev and production hosts use a 1 GiB root-disk swap file at `/swapfile`, configured
-by cloud-init and retained in `/etc/fstab` across reboots. This provides a buffer
-for deployment memory spikes; it does not increase RAM. The existing dev host is
-already configured. See [host swap](docs/host-swap.md) for rollout status,
-verification and rollback.
+Cloud-init configures a persistent 1 GiB `/swapfile` for dev and production hosts.
+Check active swap with `swapon --show`.
 
 ## Dev shipment preparation
 
