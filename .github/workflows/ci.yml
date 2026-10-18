@@ -17,6 +17,7 @@ jobs:
           done
           for file in scripts/*.mjs; do node --check "$file"; done
           python3 -c 'import ast, pathlib; ast.parse(pathlib.Path("scripts/saleor-e2e.py").read_text())'
+          python3 scripts/start-pr-runner.test.py
           python3 scripts/reconcile-shipment-dev.test.py
           python3 scripts/shipment-assets-contract.py
           test ! -e scripts/verify-e2e-saleor.mjs
