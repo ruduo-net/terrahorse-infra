@@ -78,7 +78,7 @@ resource "aws_ebs_volume" "data" {
 
 locals {
   ec2_cloud_init = {
-    for environment, config in local.ec2_environments : environment => "#cloud-config\n${yamlencode(merge({
+    for environment, config in local.ec2_environments : environment => "#cloud-config\n${yamlencode({
       write_files = concat([
         {
           path        = "/etc/terrahorse/aws.env"
@@ -141,12 +141,11 @@ locals {
       runcmd = concat([
         ["/usr/local/sbin/terrahorse-bootstrap"]
       ], environment == "dev" ? [["systemctl", "enable", "--now", "terrahorse-shipment-operator.timer"]] : [])
-      }, environment == "dev" ? {
       swap = {
         filename = "/swapfile"
         size     = 1073741824
       }
-    } : {}))}"
+    })}"
   }
 }
 

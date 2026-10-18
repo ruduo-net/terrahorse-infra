@@ -1,17 +1,20 @@
-# Dev swap
+# Host swap
 
-Dev's cloud-init config creates a 1 GiB swap file at `/swapfile` before application
+Both dev and production cloud-init create a 1 GiB swap file at `/swapfile` before application
 bootstrap. Cloud-init manages its root-only permissions, activation and fstab entry.
 The file uses the root EBS disk, leaving the data volume for application state.
-Production cloud-init is unchanged. The native configuration is documented in
+The native configuration is documented in
 [cloud-init's mounts module](https://cloudinit.readthedocs.io/en/latest/reference/modules.html#mounts).
 
 The existing dev instance was updated through SSM on 2026-10-18 without a reboot,
 service restart, instance replacement or instance-size change. The same size/path
-is recorded here for future dev hosts; the launch-template change still follows
-normal Terraform review/application and does not replace the current dev host.
+is recorded here for future dev and production hosts. The launch-template change
+still follows normal Terraform review/application and does not replace the current
+dev host. Adding this setting does not activate production or change its capacity.
+An existing production host would require a separate guarded rollout or replacement
+to acquire the setting; cloud-init changes do not modify running hosts automatically.
 
-Verify on the dev host:
+Verify on the intended host:
 
 ```sh
 swapon --show --bytes
@@ -26,7 +29,7 @@ it persistent; a reboot is not needed to activate it.
 
 ## Explicit rollback
 
-Run only on the dev host, with enough available RAM to absorb any used swap:
+Confirm the intended host and ensure enough available RAM to absorb any used swap:
 
 ```sh
 sudo swapoff /swapfile
@@ -35,6 +38,6 @@ sudo systemctl daemon-reload
 sudo rm /swapfile
 ```
 
-Stop if `swapoff` fails; do not remove an active swap file. Remove the dev-only
+Stop if `swapoff` fails; do not remove an active swap file. Remove the shared
 cloud-init `swap` entry in the same reviewed rollback if replacement hosts should
 also stop receiving swap.
