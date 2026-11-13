@@ -8,6 +8,11 @@ credential-free PR checks and trusted deployment orchestration on a developer Ma
 Cloud-init configures a persistent 1 GiB `/swapfile` for dev and production hosts.
 Check active swap with `swapon --show`.
 
+## Dev invoice storage
+
+The [dev invoice storage guide](docs/invoice-dev.md) describes the private S3
+bucket and the short-lived role credentials used by the storefront.
+
 ## Dev shipment preparation
 
 The [dev shipment guide](docs/shipment-dev.md) covers the Saleor order widget,

@@ -21,6 +21,9 @@ locals {
       SALEOR_API_URL                            = "https://api:8443/graphql/"
       SALEOR_EDITOR_API_URL                     = "https://api:8443/graphql/"
       SALEOR_OPERATOR_API_URL                   = "https://api:8443/graphql/"
+      INVOICE_S3_BUCKET                         = aws_s3_bucket.invoice-dev.bucket
+      INVOICE_S3_PREFIX                         = local.dev_invoice_prefix
+      INVOICE_S3_REGION                         = data.aws_region.current.region
       SHIPMENT_OPERATOR_PUBLIC_URL              = "https://dev.terrahorse.lt"
       SALEOR_CHANNEL                            = "terrahorse-eur"
       SALEOR_STOCK_AVAILABILITY_MODE            = "channel-aggregate"
