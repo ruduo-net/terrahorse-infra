@@ -1,22 +1,15 @@
 locals {
   dev_invoice_host_role = aws_iam_role.ec2["dev"]
   invoice_storage_by_environment = {
-    for environment, prefix in {
-      dev  = "test-invoices/v1/"
-      prod = "invoices/v1/"
-      } : environment => {
-      bucket = "${local.account_name}-invoice-${environment}-${data.aws_caller_identity.current.account_id}-${data.aws_region.current.region}"
-      prefix = prefix
+    dev = {
+      bucket = aws_s3_bucket.invoice-dev
+      prefix = "test-invoices/v1/"
     }
-  }
-  invoice_object_prefix_arns = {
-    for environment, config in local.invoice_storage_by_environment :
-    environment => "arn:aws:s3:::${config.bucket}/${config.prefix}"
   }
 }
 
 resource "aws_s3_bucket" "invoice-dev" {
-  bucket = local.invoice_storage_by_environment.dev.bucket
+  bucket = "${local.account_name}-invoice-dev-${data.aws_caller_identity.current.account_id}-${data.aws_region.current.region}"
 
   lifecycle {
     prevent_destroy = true
@@ -113,13 +106,13 @@ data "aws_iam_policy_document" "invoice-objects" {
   statement {
     sid       = "ReadInvoices"
     actions   = ["s3:GetObject"]
-    resources = ["${local.invoice_object_prefix_arns[each.key]}*"]
+    resources = ["${each.value.bucket.arn}/${each.value.prefix}*"]
   }
 
   statement {
     sid       = "CreateInvoicesOnce"
     actions   = ["s3:PutObject"]
-    resources = ["${local.invoice_object_prefix_arns[each.key]}*"]
+    resources = ["${each.value.bucket.arn}/${each.value.prefix}*"]
 
     condition {
       test     = "StringEquals"
@@ -131,7 +124,7 @@ data "aws_iam_policy_document" "invoice-objects" {
   statement {
     sid       = "AdvanceInvoiceSeriesHead"
     actions   = ["s3:PutObject"]
-    resources = ["${local.invoice_object_prefix_arns[each.key]}invoice-series/head.json"]
+    resources = ["${each.value.bucket.arn}/${each.value.prefix}invoice-series/head.json"]
 
     condition {
       test     = "Null"

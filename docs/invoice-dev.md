@@ -41,10 +41,10 @@ application delivery path.
 | Dev | `terrahorse-invoice-dev-<account>-<region>` | `test-invoices/v1/` | `THDEV` |
 | Production | `terrahorse-invoice-prod-<account>-<region>` | `invoices/v1/` | `TH` (planned) |
 
-Terraform renders each environment's policy from its profile. The production
-policy is prepared for a dedicated bucket and role, with a conditional update
-grant on `invoices/v1/invoice-series/head.json` only. Before activation,
-confirm the production series and starting number, provision the production
-bucket and role, and wire credentials and runtime config to the production
-host. Verify that the production role can access only its own bucket and series
-head and that both test and production PDFs remain create-only.
+Terraform builds the policy using the bucket resource registered for each
+environment. Before production activation, confirm the series and starting
+number, provision its dedicated bucket and role, and register the production
+bucket and prefix in `invoice_storage_by_environment`. Wire credentials and
+runtime config to the production host. Verify that the role can access only its
+own bucket, that updates are scoped to `invoices/v1/invoice-series/head.json`,
+and that invoice PDFs are create-only.
