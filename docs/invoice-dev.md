@@ -1,9 +1,9 @@
-# Dev invoice storage
+# Invoice storage
 
-Terraform provisions a private, encrypted, versioned bucket for TerraHorse
-test invoices and publishes its name as `INVOICE_S3_BUCKET`. Terraform fixes
-the allowed object prefix per environment. The storefront uses the fixed dev
-prefix `test-invoices/v1/`, region `eu-north-1`, and printed series `THDEV`.
+Terraform provisions separate private, encrypted, versioned buckets for dev and
+production. It publishes the dev bucket name as `INVOICE_S3_BUCKET`. The
+storefront uses the fixed dev prefix `test-invoices/v1/`, region `eu-north-1`,
+and printed series `THDEV`.
 
 Only the dev EC2 instance role can assume the invoice role. The invoice role
 can read objects under the configured prefix and create them using
@@ -41,10 +41,9 @@ application delivery path.
 | Dev | `terrahorse-invoice-dev-<account>-<region>` | `test-invoices/v1/` | `THDEV` |
 | Production | `terrahorse-invoice-prod-<account>-<region>` | `invoices/v1/` | `TH` (planned) |
 
-Terraform builds the policy using the bucket resource registered for each
-environment. Before production activation, confirm the series and starting
-number, provision its dedicated bucket and role, and register the production
-bucket and prefix in `invoice_storage_by_environment`. Wire credentials and
-runtime config to the production host. Verify that the role can access only its
-own bucket, that updates are scoped to `invoices/v1/invoice-series/head.json`,
-and that invoice PDFs are create-only.
+Terraform builds each environment’s policy from its bucket resource and prefix.
+The policy is attached only to the dev role. Before production activation,
+confirm the series and starting number, provision the production role, attach its
+policy, and wire the credentials and runtime config to the production host.
+Verify that the role can access only its own bucket, that updates are scoped to
+`invoices/v1/invoice-series/head.json`, and that invoice PDFs are create-only.
