@@ -6,10 +6,11 @@ test invoices. The dev runtime configuration provides `INVOICE_S3_BUCKET`,
 
 Only the dev EC2 instance role can assume the invoice role. The invoice role
 can read objects under the configured prefix and create them using
-`If-None-Match: *`. It has no bucket listing, deletion or overwrite access.
-A read for a missing object can return 403 with these permissions. The
-storefront must preserve the conditional write on first issuance and check
-the existing object on a 412 response.
+`If-None-Match: *`. It can update only `invoice-series/THDEV/head.json` under
+that prefix, using the current ETag in `If-Match`. Invoice PDFs and order
+lookups remain create-only. The role has no bucket listing or deletion access.
+A read for a missing object can return 403. The storefront re-reads the head
+after a conflict or an ambiguous update.
 
 The dev-only Systems Manager association installs a systemd timer on the
 existing host. It renews a one-hour role session every 15 minutes and writes
@@ -27,6 +28,7 @@ containers and keep credential contents out of deployment output.
 The infrastructure GitHub workflow validates Terraform. After applying the
 configuration through the approved infrastructure workflow, verify that the
 dev SSM association completed successfully before enabling the storefront
-integration. Check the timer status and credential file age without
+integration. Apply the head permission before deploying the sequential invoice
+code. Check the timer status and credential file age without
 printing its contents. The existing storefront deployment remains the
 application delivery path.

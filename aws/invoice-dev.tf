@@ -113,6 +113,24 @@ data "aws_iam_policy_document" "invoice-dev-objects" {
       values   = ["*"]
     }
   }
+
+  statement {
+    sid       = "AdvanceTestInvoiceSeriesHead"
+    actions   = ["s3:PutObject"]
+    resources = ["${aws_s3_bucket.invoice-dev.arn}/${local.dev_invoice_prefix}invoice-series/THDEV/head.json"]
+
+    condition {
+      test     = "Null"
+      variable = "s3:if-match"
+      values   = ["false"]
+    }
+
+    condition {
+      test     = "StringNotEquals"
+      variable = "s3:if-match"
+      values   = ["*"]
+    }
+  }
 }
 
 resource "aws_iam_role_policy" "invoice-dev-objects" {
