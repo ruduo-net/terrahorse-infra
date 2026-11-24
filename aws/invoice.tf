@@ -1,40 +1,36 @@
 locals {
   dev_invoice_host_role = aws_iam_role.ec2["dev"]
   invoice_storage_by_environment = {
-    for environment, config in {
-      dev = {
-        prefix = "test-invoices/v1/"
-        series = "THDEV"
-      }
-      prod = {
-        prefix = "invoices/v1/"
-        series = "TH"
-      }
-      } : environment => merge(config, {
-        bucket = "${local.account_name}-invoice-${environment}-${data.aws_caller_identity.current.account_id}-${data.aws_region.current.region}"
-    })
-  }
-  invoice_object_prefix_arns = {
-    for environment, config in local.invoice_storage_by_environment :
-    environment => "arn:aws:s3:::${config.bucket}/${config.prefix}"
+    dev = {
+      prefix  = "test-invoices/v1/"
+      purpose = "test-invoices"
+    }
+    prod = {
+      prefix  = "invoices/v1/"
+      purpose = "invoices"
+    }
   }
 }
 
-resource "aws_s3_bucket" "invoice-dev" {
-  bucket = local.invoice_storage_by_environment.dev.bucket
+resource "aws_s3_bucket" "invoice" {
+  for_each = local.invoice_storage_by_environment
+
+  bucket = "${local.account_name}-invoice-${each.key}-${data.aws_caller_identity.current.account_id}-${data.aws_region.current.region}"
 
   lifecycle {
     prevent_destroy = true
   }
 
   tags = {
-    Environment = "dev"
-    Purpose     = "test-invoices"
+    Environment = each.key
+    Purpose     = each.value.purpose
   }
 }
 
-resource "aws_s3_bucket_public_access_block" "invoice-dev" {
-  bucket = aws_s3_bucket.invoice-dev.id
+resource "aws_s3_bucket_public_access_block" "invoice" {
+  for_each = aws_s3_bucket.invoice
+
+  bucket = each.value.id
 
   block_public_acls       = true
   block_public_policy     = true
@@ -42,16 +38,20 @@ resource "aws_s3_bucket_public_access_block" "invoice-dev" {
   restrict_public_buckets = true
 }
 
-resource "aws_s3_bucket_ownership_controls" "invoice-dev" {
-  bucket = aws_s3_bucket.invoice-dev.id
+resource "aws_s3_bucket_ownership_controls" "invoice" {
+  for_each = aws_s3_bucket.invoice
+
+  bucket = each.value.id
 
   rule {
     object_ownership = "BucketOwnerEnforced"
   }
 }
 
-resource "aws_s3_bucket_server_side_encryption_configuration" "invoice-dev" {
-  bucket = aws_s3_bucket.invoice-dev.id
+resource "aws_s3_bucket_server_side_encryption_configuration" "invoice" {
+  for_each = aws_s3_bucket.invoice
+
+  bucket = each.value.id
 
   rule {
     apply_server_side_encryption_by_default {
@@ -60,22 +60,26 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "invoice-dev" {
   }
 }
 
-resource "aws_s3_bucket_versioning" "invoice-dev" {
-  bucket = aws_s3_bucket.invoice-dev.id
+resource "aws_s3_bucket_versioning" "invoice" {
+  for_each = aws_s3_bucket.invoice
+
+  bucket = each.value.id
 
   versioning_configuration {
     status = "Enabled"
   }
 }
 
-data "aws_iam_policy_document" "invoice-dev-bucket" {
+data "aws_iam_policy_document" "invoice-bucket" {
+  for_each = aws_s3_bucket.invoice
+
   statement {
     sid     = "RequireTLS"
     effect  = "Deny"
     actions = ["s3:*"]
     resources = [
-      aws_s3_bucket.invoice-dev.arn,
-      "${aws_s3_bucket.invoice-dev.arn}/*",
+      each.value.arn,
+      "${each.value.arn}/*",
     ]
 
     principals {
@@ -91,9 +95,41 @@ data "aws_iam_policy_document" "invoice-dev-bucket" {
   }
 }
 
-resource "aws_s3_bucket_policy" "invoice-dev" {
-  bucket = aws_s3_bucket.invoice-dev.id
-  policy = data.aws_iam_policy_document.invoice-dev-bucket.json
+resource "aws_s3_bucket_policy" "invoice" {
+  for_each = aws_s3_bucket.invoice
+
+  bucket = each.value.id
+  policy = data.aws_iam_policy_document.invoice-bucket[each.key].json
+}
+
+moved {
+  from = aws_s3_bucket.invoice-dev
+  to   = aws_s3_bucket.invoice["dev"]
+}
+
+moved {
+  from = aws_s3_bucket_public_access_block.invoice-dev
+  to   = aws_s3_bucket_public_access_block.invoice["dev"]
+}
+
+moved {
+  from = aws_s3_bucket_ownership_controls.invoice-dev
+  to   = aws_s3_bucket_ownership_controls.invoice["dev"]
+}
+
+moved {
+  from = aws_s3_bucket_server_side_encryption_configuration.invoice-dev
+  to   = aws_s3_bucket_server_side_encryption_configuration.invoice["dev"]
+}
+
+moved {
+  from = aws_s3_bucket_versioning.invoice-dev
+  to   = aws_s3_bucket_versioning.invoice["dev"]
+}
+
+moved {
+  from = aws_s3_bucket_policy.invoice-dev
+  to   = aws_s3_bucket_policy.invoice["dev"]
 }
 
 data "aws_iam_policy_document" "invoice-dev-trust" {
@@ -113,18 +149,18 @@ resource "aws_iam_role" "invoice-dev" {
 }
 
 data "aws_iam_policy_document" "invoice-objects" {
-  for_each = local.invoice_storage_by_environment
+  for_each = aws_s3_bucket.invoice
 
   statement {
     sid       = "ReadInvoices"
     actions   = ["s3:GetObject"]
-    resources = ["${local.invoice_object_prefix_arns[each.key]}*"]
+    resources = ["${each.value.arn}/${local.invoice_storage_by_environment[each.key].prefix}*"]
   }
 
   statement {
     sid       = "CreateInvoicesOnce"
     actions   = ["s3:PutObject"]
-    resources = ["${local.invoice_object_prefix_arns[each.key]}*"]
+    resources = ["${each.value.arn}/${local.invoice_storage_by_environment[each.key].prefix}*"]
 
     condition {
       test     = "StringEquals"
@@ -136,7 +172,7 @@ data "aws_iam_policy_document" "invoice-objects" {
   statement {
     sid       = "AdvanceInvoiceSeriesHead"
     actions   = ["s3:PutObject"]
-    resources = ["${local.invoice_object_prefix_arns[each.key]}invoice-series/${each.value.series}/head.json"]
+    resources = ["${each.value.arn}/${local.invoice_storage_by_environment[each.key].prefix}invoice-series/head.json"]
 
     condition {
       test     = "Null"

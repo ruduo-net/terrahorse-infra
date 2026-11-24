@@ -1,13 +1,13 @@
-# Dev invoice storage
+# Invoice storage
 
-Terraform provisions a private, encrypted, versioned bucket for TerraHorse
-test invoices. The dev runtime configuration provides `INVOICE_S3_BUCKET`,
-`INVOICE_S3_REGION`, `INVOICE_S3_PREFIX`, and `INVOICE_SERIES`. The prefix and
-series come from the same environment profile as the IAM policy.
+Terraform provisions separate private, encrypted, versioned buckets for dev and
+production. It publishes the dev bucket name as `INVOICE_S3_BUCKET`. The
+storefront uses the fixed dev prefix `test-invoices/v1/`, region `eu-north-1`,
+and printed series `THDEV`.
 
 Only the dev EC2 instance role can assume the invoice role. The invoice role
 can read objects under the configured prefix and create them using
-`If-None-Match: *`. It can update only `invoice-series/THDEV/head.json` under
+`If-None-Match: *`. It can update only `invoice-series/head.json` under
 that prefix, using the current ETag in `If-Match`. Invoice PDFs and order
 lookups remain create-only. The role has no bucket listing or deletion access.
 A read for a missing object can return 403. The storefront re-reads the head
@@ -41,10 +41,9 @@ application delivery path.
 | Dev | `terrahorse-invoice-dev-<account>-<region>` | `test-invoices/v1/` | `THDEV` |
 | Production | `terrahorse-invoice-prod-<account>-<region>` | `invoices/v1/` | `TH` (planned) |
 
-Terraform renders each environment's policy from its profile. The production
-policy is prepared for a dedicated bucket and role, with a conditional update
-grant on `invoices/v1/invoice-series/TH/head.json` only. Before activation,
-confirm the production series and starting number, provision the production
-bucket and role, and wire credentials and runtime config to the production
-host. Verify that the production role can access only its own bucket and series
-head and that both test and production PDFs remain create-only.
+Terraform builds each environment’s policy from its bucket resource and prefix.
+The policy is attached only to the dev role. Before production activation,
+confirm the series and starting number, provision the production role, attach its
+policy, and wire the credentials and runtime config to the production host.
+Verify that the role can access only its own bucket, that updates are scoped to
+`invoices/v1/invoice-series/head.json`, and that invoice PDFs are create-only.
