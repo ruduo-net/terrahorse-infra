@@ -1,10 +1,27 @@
 locals {
-  dev_invoice_prefix    = "test-invoices/v1/"
   dev_invoice_host_role = aws_iam_role.ec2["dev"]
+  invoice_storage_by_environment = {
+    for environment, config in {
+      dev = {
+        prefix = "test-invoices/v1/"
+        series = "THDEV"
+      }
+      prod = {
+        prefix = "invoices/v1/"
+        series = "TH"
+      }
+      } : environment => merge(config, {
+        bucket = "${local.account_name}-invoice-${environment}-${data.aws_caller_identity.current.account_id}-${data.aws_region.current.region}"
+    })
+  }
+  invoice_object_prefix_arns = {
+    for environment, config in local.invoice_storage_by_environment :
+    environment => "arn:aws:s3:::${config.bucket}/${config.prefix}"
+  }
 }
 
 resource "aws_s3_bucket" "invoice-dev" {
-  bucket = "${local.account_name}-invoice-dev-${data.aws_caller_identity.current.account_id}-${data.aws_region.current.region}"
+  bucket = local.invoice_storage_by_environment.dev.bucket
 
   lifecycle {
     prevent_destroy = true
@@ -95,21 +112,41 @@ resource "aws_iam_role" "invoice-dev" {
   assume_role_policy = data.aws_iam_policy_document.invoice-dev-trust.json
 }
 
-data "aws_iam_policy_document" "invoice-dev-objects" {
+data "aws_iam_policy_document" "invoice-objects" {
+  for_each = local.invoice_storage_by_environment
+
   statement {
-    sid       = "ReadTestInvoices"
+    sid       = "ReadInvoices"
     actions   = ["s3:GetObject"]
-    resources = ["${aws_s3_bucket.invoice-dev.arn}/${local.dev_invoice_prefix}*"]
+    resources = ["${local.invoice_object_prefix_arns[each.key]}*"]
   }
 
   statement {
-    sid       = "CreateTestInvoicesOnce"
+    sid       = "CreateInvoicesOnce"
     actions   = ["s3:PutObject"]
-    resources = ["${aws_s3_bucket.invoice-dev.arn}/${local.dev_invoice_prefix}*"]
+    resources = ["${local.invoice_object_prefix_arns[each.key]}*"]
 
     condition {
       test     = "StringEquals"
       variable = "s3:if-none-match"
+      values   = ["*"]
+    }
+  }
+
+  statement {
+    sid       = "AdvanceInvoiceSeriesHead"
+    actions   = ["s3:PutObject"]
+    resources = ["${local.invoice_object_prefix_arns[each.key]}invoice-series/${each.value.series}/head.json"]
+
+    condition {
+      test     = "Null"
+      variable = "s3:if-match"
+      values   = ["false"]
+    }
+
+    condition {
+      test     = "StringNotEquals"
+      variable = "s3:if-match"
       values   = ["*"]
     }
   }
@@ -118,7 +155,7 @@ data "aws_iam_policy_document" "invoice-dev-objects" {
 resource "aws_iam_role_policy" "invoice-dev-objects" {
   name   = "${local.account_name}-invoice-dev-objects"
   role   = aws_iam_role.invoice-dev.name
-  policy = data.aws_iam_policy_document.invoice-dev-objects.json
+  policy = data.aws_iam_policy_document.invoice-objects["dev"].json
 }
 
 data "aws_iam_policy_document" "ec2-assume-invoice-dev" {
