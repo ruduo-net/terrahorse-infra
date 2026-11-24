@@ -1,9 +1,9 @@
 # Dev invoice storage
 
 Terraform provisions a private, encrypted, versioned bucket for TerraHorse
-test invoices. The dev runtime configuration provides `INVOICE_S3_BUCKET`,
-`INVOICE_S3_REGION`, `INVOICE_S3_PREFIX`, and `INVOICE_SERIES`. Each
-environment profile sets the storage prefix and printed series.
+test invoices and publishes its name as `INVOICE_S3_BUCKET`. Terraform fixes
+the allowed object prefix per environment. The storefront uses the fixed dev
+prefix `test-invoices/v1/`, region `eu-north-1`, and printed series `THDEV`.
 
 Only the dev EC2 instance role can assume the invoice role. The invoice role
 can read objects under the configured prefix and create them using
