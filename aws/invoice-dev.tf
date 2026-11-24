@@ -136,7 +136,7 @@ data "aws_iam_policy_document" "invoice-objects" {
   statement {
     sid       = "AdvanceInvoiceSeriesHead"
     actions   = ["s3:PutObject"]
-    resources = ["${local.invoice_object_prefix_arns[each.key]}invoice-series/${each.value.series}/head.json"]
+    resources = ["${local.invoice_object_prefix_arns[each.key]}invoice-series/head.json"]
 
     condition {
       test     = "Null"

@@ -2,12 +2,12 @@
 
 Terraform provisions a private, encrypted, versioned bucket for TerraHorse
 test invoices. The dev runtime configuration provides `INVOICE_S3_BUCKET`,
-`INVOICE_S3_REGION`, `INVOICE_S3_PREFIX`, and `INVOICE_SERIES`. The prefix and
-series come from the same environment profile as the IAM policy.
+`INVOICE_S3_REGION`, `INVOICE_S3_PREFIX`, and `INVOICE_SERIES`. Each
+environment profile sets the storage prefix and printed series.
 
 Only the dev EC2 instance role can assume the invoice role. The invoice role
 can read objects under the configured prefix and create them using
-`If-None-Match: *`. It can update only `invoice-series/THDEV/head.json` under
+`If-None-Match: *`. It can update only `invoice-series/head.json` under
 that prefix, using the current ETag in `If-Match`. Invoice PDFs and order
 lookups remain create-only. The role has no bucket listing or deletion access.
 A read for a missing object can return 403. The storefront re-reads the head
@@ -43,7 +43,7 @@ application delivery path.
 
 Terraform renders each environment's policy from its profile. The production
 policy is prepared for a dedicated bucket and role, with a conditional update
-grant on `invoices/v1/invoice-series/TH/head.json` only. Before activation,
+grant on `invoices/v1/invoice-series/head.json` only. Before activation,
 confirm the production series and starting number, provision the production
 bucket and role, and wire credentials and runtime config to the production
 host. Verify that the production role can access only its own bucket and series
